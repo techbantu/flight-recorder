@@ -1,0 +1,10 @@
+{
+  "name": "@techbantu/flight-recorder",
+  "version": "0.2.0",
+  "description": "Agent-grade flight recorder protocol (state/decisions/resume/receipts) with an optional task generator.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "fr-init": "./bin/fr-init.js"
+  }
+}

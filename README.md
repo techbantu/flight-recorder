@@ -38,6 +38,14 @@ Copy from `templates/`:
 - `templates/decisions.log`
 - `templates/resume.md`
 
+## One-command generator (optional)
+Create a new task folder with state/decisions/checks/resume/receipts:
+
+```bash
+node bin/fr-init.js "Fix share previews"
+# or, if installed as a package: fr-init "Fix share previews"
+```
+
 ## Optional additions
 If you want extra rigor:
 - `checks.md` — verification checklist ("what proves success")
