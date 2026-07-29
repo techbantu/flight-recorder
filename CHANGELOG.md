@@ -11,7 +11,10 @@ All notable changes will be documented here.
   without invoking a shell or retaining stdout, stderr, or environment content.
 - Immutable, content-addressed `fr seal` handoff capsules.
 - `fr verify` integrity, workspace-freshness, and observed-proof outcomes.
-- A public versioned handoff capsule JSON Schema.
+- Public versioned handoff-capsule and command-receipt JSON Schemas, plus a
+  reproducible canonical-digest contract and known vector.
+- An inert Git index/raw-worktree fingerprint with normalized executable modes
+  and bounded stable-snapshot checks.
 - Safe retry and partial-repair behavior that preserves existing evidence.
 - Versioned recorder identity with task-mismatch and malformed-state rejection.
 - Stable input, target-conflict, and path-boundary errors.
@@ -24,3 +27,5 @@ All notable changes will be documented here.
   its README and package metadata.
 - Task names containing replacement tokens such as `$&` are written exactly to
   `resume.md`.
+- Verification fails closed for malformed receipts, task-mismatched evidence,
+  changing workspaces, unsafe immutable targets, and non-portable paths.

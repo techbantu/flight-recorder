@@ -81,6 +81,17 @@ SHA-256 hashes, but does not separately retain the observed output bytes or
 environment. Because exact arguments are retained, output text written
 literally inside an argument remains part of that argument.
 
+On Windows, `.cmd` programs require an explicit command interpreter when
+`shell: false` is used. Invoke npm transparently as the exact `cmd.exe`
+argument array:
+
+```powershell
+node bin/fr.js run ops/fix-share-previews -- cmd.exe /d /s /c "npm test"
+```
+
+Version 1 does not impose a timeout or supervise descendant processes. The
+observed command must terminate on its own or be managed by the operator.
+
 Seal the current handoff:
 
 ```bash
@@ -104,21 +115,28 @@ node bin/fr.js verify \
 
 - `VALID`: capsule and referenced files are intact, the Git workspace is
   current, and at least one successful observed command matches that workspace.
-- `STALE_WORKSPACE`: the capsule is intact, but HEAD, staged changes, unstaged
-  changes, non-ignored untracked files, or recorded submodule commit/status
-  differs.
+- `STALE_WORKSPACE`: the capsule is intact, but HEAD, the Git index, raw
+  tracked worktree bytes or modes, non-ignored untracked files or modes, or
+  recorded submodule commit/presence differs.
 - `TAMPERED`: the content-addressed capsule or a referenced artifact changed.
 - `INVALID`: the schema or a required safe path is malformed or unsupported.
 - `UNVERIFIED`: the capsule is current but has no successful observed command
   for that exact workspace.
 
-Exit codes are 0, 4, 5, 6, and 3 respectively. The public interchange contract
-is [schema/handoff-v1.schema.json](schema/handoff-v1.schema.json).
+Exit codes are 0, 4, 5, 6, and 3 respectively. The public interchange contract,
+canonical digest algorithm, workspace model, and strict receipt semantics are
+documented in [Handoff Interchange Contract v1](docs/HANDOFF_V1.md). Its
+packaged schemas are [handoff-v1.schema.json](schema/handoff-v1.schema.json)
+and
+[command-receipt-v1.schema.json](schema/command-receipt-v1.schema.json).
 
 The recorder directory is excluded from the Git workspace fingerprint because
 its artifacts and receipts are hashed separately. Git-ignored files are not
-part of the fingerprint. The v1 submodule summary does not recursively hash
-ignored or untracked files inside a submodule.
+part of the fingerprint. Fingerprinting reads inert Git index metadata and raw
+filesystem bytes; it does not execute diff/textconv drivers, clean filters,
+fsmonitor hooks, or repository hooks. The v1 submodule summary records gitlink
+index state and checkout HEAD/presence, but does not recursively hash dirty,
+ignored, or untracked files inside a submodule.
 
 ## Safety contract
 
@@ -136,6 +154,8 @@ ignored or untracked files inside a submodule.
 - Receipts and capsules are published with atomic, exclusive filesystem writes.
 - Recorder, capsule, and receipt paths cannot traverse symbolic links.
 - `fr run` invokes an explicit argument array with `shell: false`.
+- Workspace snapshots require per-file stability and two consecutive matching
+  captures; continued mutation fails closed.
 
 If creation stops because of a local filesystem error, correct the permission or
 path problem and run the same command again. The retry is additive and keeps
@@ -168,12 +188,16 @@ local file deletion.
 Installing from npm or cloning from GitHub uses those services, but running
 `fr-init` does not.
 
-`fr run` records the exact executable and argument array. Command arguments can
-contain secrets, so do not place tokens, passwords, or private content on the
-command line. Output content and environment variables are not stored by
-default; exact arguments are stored, and terminal software or the invoked
-command may log output independently. Git remote URLs are never included in a
-receipt or capsule.
+`fr run` records the exact executable and argument array. That array may retain
+absolute paths, usernames, URLs, or embedded tokens, so do not place passwords,
+tokens, or private content on the command line. Flight Recorder does not query
+or separately capture configured Git remotes, but a remote URL explicitly
+present in an argument or artifact remains there. Output content and
+environment variables are not stored by default; exact arguments are stored,
+and terminal software or the invoked command may log output independently.
+
+Output hashes are integrity and equality signals, not encryption. Someone can
+guess low-entropy output and compare its hash with a receipt.
 
 SHA-256 addresses establish self-consistency and detect later local changes.
 They do not establish authorship, trusted identity, or independent attestation.
@@ -192,7 +216,8 @@ npm pack --dry-run
 `npm run check` performs syntax checks and the Node test suite. The tests cover
 creation, safe retry and repair, recorder identity and task collisions,
 conflict rejection, literal task rendering, exact argument execution, output
-minimization, content addressing, integrity and freshness outcomes, invalid
+minimization, canonical content addressing, inert and stable workspace
+fingerprinting, strict receipt proof, integrity and freshness outcomes, invalid
 input, path containment, and package contents.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change.

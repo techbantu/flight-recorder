@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:techbantu:flight-recorder:schema:command-receipt:v1",
+  "title": "Flight Recorder Command Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "id",
+    "observation",
+    "task",
+    "command",
+    "startedAt",
+    "completedAt",
+    "durationMs",
+    "result",
+    "workspaceBefore",
+    "workspaceAfter"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "dev.flight-recorder.command-receipt"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+    },
+    "observation": {
+      "const": "observed-by-flight-recorder"
+    },
+    "task": {
+      "$ref": "#/$defs/task"
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "argv",
+        "cwd"
+      ],
+      "properties": {
+        "argv": {
+          "type": "array",
+          "minItems": 1,
+          "prefixItems": [
+            {
+              "type": "string",
+              "minLength": 1
+            }
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "cwd": {
+          "anyOf": [
+            {
+              "const": "."
+            },
+            {
+              "$ref": "#/$defs/relativePath"
+            }
+          ]
+        }
+      }
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "completedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "durationMs": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1.7976931348623157e+308
+    },
+    "result": {
+      "$ref": "#/$defs/result"
+    },
+    "workspaceBefore": {
+      "$ref": "#/$defs/workspace"
+    },
+    "workspaceAfter": {
+      "$ref": "#/$defs/workspace"
+    }
+  },
+  "$defs": {
+    "task": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^(?=.*\\S)[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!\\.\\.?(?:$|/))(?!.*\\/\\.\\.?(?:$|/))(?!.*[\\u0000-\\u001F\\u007F:])[^/\\\\]+(?:/[^/\\\\]+)*$"
+    },
+    "digest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bytes",
+        "sha256"
+      ],
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "workspaceFileSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "bytes",
+        "sha256",
+        "mode"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "mode": {
+          "enum": [
+            "100644",
+            "100755"
+          ]
+        }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "vcs",
+        "head",
+        "excludedRecorderPath",
+        "index",
+        "worktree",
+        "untracked",
+        "submodules"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "vcs": {
+          "const": "git"
+        },
+        "head": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40,64}$"
+        },
+        "excludedRecorderPath": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "index": {
+          "$ref": "#/$defs/digest"
+        },
+        "worktree": {
+          "$ref": "#/$defs/digest"
+        },
+        "untracked": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/workspaceFileSummary"
+          },
+          "uniqueItems": true
+        },
+        "submodules": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exitCode",
+        "signal",
+        "timedOut",
+        "spawnErrorCode",
+        "stdout",
+        "stderr"
+      ],
+      "properties": {
+        "exitCode": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "signal": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timedOut": {
+          "type": "boolean"
+        },
+        "spawnErrorCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stdout": {
+          "$ref": "#/$defs/digest"
+        },
+        "stderr": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    }
+  }
+}

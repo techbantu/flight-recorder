@@ -17,11 +17,13 @@ the package.
    ```
 
 4. Inspect the dry-run file list for both executables, `src/`, all four
-   templates, and `schema/handoff-v1.schema.json`.
+   templates, `docs/HANDOFF_V1.md`, and both JSON Schemas under `schema/`.
 5. Run `npm pack --pack-destination <clean-temporary-directory>`, install that
    tarball in a separate empty project, and smoke-test creation, retry, and
    conflict rejection, literal-argument command capture, sealing, valid
    verification, and stale-workspace rejection on a supported Node version.
+   On Windows, exercise the documented explicit
+   `cmd.exe /d /s /c "npm --version"` observation path.
 6. Verify the default branch CI is green.
 
 ## Publish

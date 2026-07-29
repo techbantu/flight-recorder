@@ -9,7 +9,7 @@ import {
 } from "../src/handoff.js";
 
 const help = `Usage:
-  fr run <recorder-dir> [--timeout <milliseconds>] -- <command> [arguments...]
+  fr run <recorder-dir> -- <command> [arguments...]
   fr seal <recorder-dir>
   fr verify <capsule-path>
 
@@ -27,26 +27,13 @@ const parseRun = (arguments_) => {
   const options = arguments_.slice(0, separator);
   const argv = arguments_.slice(separator + 1);
   const recorderArgument = options.shift();
-  let timeoutMs = 300_000;
 
-  while (options.length > 0) {
-    const option = options.shift();
-    if (option === "--timeout") {
-      const value = options.shift();
-      if (value === undefined) {
-        throw usageError("E_TIMEOUT", "--timeout requires milliseconds.");
-      }
-      timeoutMs = Number(value);
-      continue;
-    }
-    if (option.startsWith("--timeout=")) {
-      timeoutMs = Number(option.slice("--timeout=".length));
-      continue;
-    }
+  if (options.length > 0) {
+    const option = options[0];
     throw usageError("E_OPTION_UNKNOWN", `Unknown run option: ${option}`);
   }
 
-  return { recorderArgument, argv, timeoutMs };
+  return { recorderArgument, argv };
 };
 
 const exactArgument = (command, arguments_) => {

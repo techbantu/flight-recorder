@@ -2,19 +2,26 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
   access,
+  chmod,
   mkdtemp,
   mkdir,
   readFile,
   readdir,
   rm,
   symlink,
+  unlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, test } from "node:test";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import {
+  canonicalJson as productionCanonicalJson,
+  sha256 as productionSha256,
+  writeImmutable,
+} from "../src/integrity.js";
 
 const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const initPath = join(repositoryRoot, "bin", "fr-init.js");
@@ -119,10 +126,16 @@ test("run witnesses exact argv but stores only output hashes and byte counts", a
   const stdout = "visible stdout\n";
   const stderr = "private-looking stderr\n";
   const literalArgument = "$(touch should-not-exist)";
+  const explicitUrl =
+    "https://argument-user:argument-token@example.invalid/repository.git";
+  const configuredRemote =
+    "https://configured-user:configured-token@example.invalid/repository.git";
+  git(context.workspace, "remote", "add", "origin", configuredRemote);
   const script = [
     "process.stdout.write(process.env.TEST_STDOUT);",
     "process.stderr.write(process.env.TEST_STDERR);",
     "if (process.argv[1] !== process.env.EXPECTED_LITERAL) process.exit(9);",
+    "if (process.argv[2] !== process.env.EXPECTED_URL) process.exit(10);",
   ].join("");
   const result = runProcess(
     context.workspace,
@@ -136,11 +149,13 @@ test("run witnesses exact argv but stores only output hashes and byte counts", a
       "-e",
       script,
       literalArgument,
+      explicitUrl,
     ],
     {
       env: {
         ...process.env,
         EXPECTED_LITERAL: literalArgument,
+        EXPECTED_URL: explicitUrl,
         TEST_STDOUT: stdout,
         TEST_STDERR: stderr,
         FLIGHT_RECORDER_TEST_SECRET: "must-not-enter-the-receipt",
@@ -167,6 +182,7 @@ test("run witnesses exact argv but stores only output hashes and byte counts", a
     "-e",
     script,
     literalArgument,
+    explicitUrl,
   ]);
   assert.deepEqual(receipt.result.stdout, {
     bytes: Buffer.byteLength(stdout),
@@ -180,7 +196,8 @@ test("run witnesses exact argv but stores only output hashes and byte counts", a
   assert.equal(receiptText.includes(stdout.trim()), false);
   assert.equal(receiptText.includes(stderr.trim()), false);
   assert.equal(receiptText.includes("must-not-enter-the-receipt"), false);
-  assert.equal(receiptText.includes("github.com"), false);
+  assert.equal(receiptText.includes(explicitUrl), true);
+  assert.equal(receiptText.includes(configuredRemote), false);
   assert.equal("env" in receipt, false);
 });
 
@@ -214,8 +231,9 @@ test("run records spawn failure without creating a valid-looking success", async
   assert.equal(receipt.result.spawnErrorCode, "ENOENT");
 });
 
-test("run bounds execution with an explicit timeout and records it", async () => {
+test("run rejects the removed timeout option before spawning a command", async () => {
   const context = await makeGitWorkspace();
+  const sentinel = join(context.workspace, "timeout-command-ran");
   const result = runCli(
     context.workspace,
     "run",
@@ -225,13 +243,35 @@ test("run bounds execution with an explicit timeout and records it", async () =>
     "--",
     process.execPath,
     "-e",
-    "setInterval(() => {}, 1000)",
+    `require("node:fs").writeFileSync(${JSON.stringify(sentinel)}, "ran")`,
   );
 
-  assert.equal(result.status, 124);
-  const [receiptPath] = await receiptPaths(context);
-  const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
-  assert.equal(receipt.result.timedOut, true);
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /\[E_OPTION_UNKNOWN\]/u);
+  await assert.rejects(access(sentinel), { code: "ENOENT" });
+  assert.deepEqual(await receiptPaths(context), []);
+});
+
+test("immutable publication removes its temporary file after a pre-link failure", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "flight-recorder-atomic-"));
+  temporaryDirectories.push(workspace);
+  const target = join(workspace, "receipt.json");
+
+  await assert.rejects(writeImmutable(target, Symbol("invalid-content")));
+  assert.deepEqual(await readdir(workspace), []);
+});
+
+test("immutable publication compares existing content as raw bytes", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "flight-recorder-bytes-"));
+  temporaryDirectories.push(workspace);
+  const target = join(workspace, "receipt.json");
+  await writeFile(target, Buffer.from([0xff]));
+
+  await assert.rejects(
+    writeImmutable(target, "\ufffd"),
+    { code: "E_IMMUTABLE_CONFLICT" },
+  );
+  assert.deepEqual(await readFile(target), Buffer.from([0xff]));
 });
 
 test("seal is content-addressed and verify returns VALID for current observed proof", async () => {
@@ -254,6 +294,62 @@ test("seal is content-addressed and verify returns VALID for current observed pr
   );
   assert.equal(verified.status, 0, verified.stderr);
   assert.match(verified.stdout, /^VALID\b/u);
+});
+
+test("canonical JSON has a reproducible UTF-8 SHA-256 known vector", () => {
+  const value = {
+    z: [3, { β: "line\n", a: true }],
+    a: "π",
+  };
+  const canonical = '{"a":"π","z":[3,{"a":true,"β":"line\\n"}]}';
+
+  assert.equal(productionCanonicalJson(value), canonical);
+  assert.equal(
+    Buffer.from(productionCanonicalJson(value), "utf8").toString("hex"),
+    Buffer.from(canonical, "utf8").toString("hex"),
+  );
+  assert.equal(
+    productionSha256(productionCanonicalJson(value)),
+    "d0f47fc89494118614fb87e455d261df890212a0afdcc4e65c0c124b84828143",
+  );
+});
+
+test("public v1 schemas are parseable, stable, and share workspace contracts", async () => {
+  const handoff = JSON.parse(
+    await readFile(join(repositoryRoot, "schema", "handoff-v1.schema.json"), "utf8"),
+  );
+  const receipt = JSON.parse(
+    await readFile(
+      join(repositoryRoot, "schema", "command-receipt-v1.schema.json"),
+      "utf8",
+    ),
+  );
+
+  assert.equal(
+    handoff.$id,
+    "urn:techbantu:flight-recorder:schema:handoff:v1",
+  );
+  assert.equal(
+    receipt.$id,
+    "urn:techbantu:flight-recorder:schema:command-receipt:v1",
+  );
+  for (const definition of [
+    "task",
+    "relativePath",
+    "digest",
+    "workspaceFileSummary",
+    "workspace",
+  ]) {
+    assert.deepEqual(receipt.$defs[definition], handoff.$defs[definition]);
+  }
+  assert.equal(
+    handoff.$defs.digest.properties.bytes.maximum,
+    Number.MAX_SAFE_INTEGER,
+  );
+  assert.deepEqual(
+    handoff.$defs.workspaceFileSummary.properties.mode.enum,
+    ["100644", "100755"],
+  );
 });
 
 test("verify returns UNVERIFIED when a fresh capsule has no successful observed command", async () => {
@@ -291,6 +387,63 @@ test("verify returns UNVERIFIED when successful evidence predates the sealed wor
   assert.equal(verified.status, 3, verified.stderr);
   assert.match(verified.stdout, /^UNVERIFIED\b/u);
 });
+
+test("a successful receipt supports only the task it observed", async () => {
+  const context = await makeGitWorkspace();
+  assert.equal(
+    runObserved(context, process.execPath, "-e", "process.exit(0)").status,
+    0,
+  );
+  const statePath = join(context.recorder, "state.json");
+  const state = JSON.parse(await readFile(statePath, "utf8"));
+  state.activeTask = "Different handoff";
+  await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  const capsule = await seal(context);
+
+  const verified = runCli(
+    context.workspace,
+    "verify",
+    capsule.path.slice(context.workspace.length + 1),
+  );
+  assert.equal(verified.status, 3, verified.stderr);
+  assert.match(verified.stdout, /^UNVERIFIED\b/u);
+});
+
+for (const [name, mutate] of [
+  ["a timed-out result", (receipt) => {
+    receipt.result.timedOut = true;
+  }],
+  ["a signaled result", (receipt) => {
+    receipt.result.signal = "SIGTERM";
+  }],
+  ["a spawn error", (receipt) => {
+    receipt.result.spawnErrorCode = "E_SPAWN";
+  }],
+  ["an unexpected result field", (receipt) => {
+    receipt.result.unexpected = true;
+  }],
+]) {
+  test(`verify refuses ${name} as successful proof`, async () => {
+    const context = await makeGitWorkspace();
+    assert.equal(
+      runObserved(context, process.execPath, "-e", "process.exit(0)").status,
+      0,
+    );
+    const [receiptPath] = await receiptPaths(context);
+    const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
+    mutate(receipt);
+    await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+    const capsule = await seal(context);
+
+    const verified = runCli(
+      context.workspace,
+      "verify",
+      capsule.path.slice(context.workspace.length + 1),
+    );
+    assert.equal(verified.status, 3, verified.stderr);
+    assert.match(verified.stdout, /^UNVERIFIED\b/u);
+  });
+}
 
 for (const [name, mutate] of [
   [
@@ -338,6 +491,53 @@ for (const [name, mutate] of [
   });
 }
 
+test("verify returns STALE_WORKSPACE after a submodule checkout HEAD changes", async () => {
+  const submoduleSource = await mkdtemp(
+    join(tmpdir(), "flight-recorder-submodule-source-"),
+  );
+  temporaryDirectories.push(submoduleSource);
+  git(submoduleSource, "init", "--quiet");
+  git(submoduleSource, "config", "user.email", "submodule@example.invalid");
+  git(submoduleSource, "config", "user.name", "Submodule Test");
+  await writeFile(join(submoduleSource, "module.txt"), "first\n", "utf8");
+  git(submoduleSource, "add", ".");
+  git(submoduleSource, "commit", "--quiet", "-m", "first");
+
+  const context = await makeGitWorkspace();
+  git(
+    context.workspace,
+    "-c",
+    "protocol.file.allow=always",
+    "submodule",
+    "add",
+    "--quiet",
+    "--force",
+    submoduleSource,
+    "vendor/module",
+  );
+  git(context.workspace, "commit", "--quiet", "-am", "add submodule");
+  assert.equal(
+    runObserved(context, process.execPath, "-e", "process.exit(0)").status,
+    0,
+  );
+  const capsule = await seal(context);
+
+  const checkout = join(context.workspace, "vendor", "module");
+  git(checkout, "config", "user.email", "submodule@example.invalid");
+  git(checkout, "config", "user.name", "Submodule Test");
+  await writeFile(join(checkout, "module.txt"), "second\n", "utf8");
+  git(checkout, "add", "module.txt");
+  git(checkout, "commit", "--quiet", "-m", "second");
+
+  const verified = runCli(
+    context.workspace,
+    "verify",
+    capsule.path.slice(context.workspace.length + 1),
+  );
+  assert.equal(verified.status, 4, verified.stderr);
+  assert.match(verified.stdout, /^STALE_WORKSPACE\b/u);
+});
+
 test("ignored file changes do not stale an otherwise valid capsule", async () => {
   const context = await makeGitWorkspace({ ignored: true });
   assert.equal(
@@ -354,6 +554,140 @@ test("ignored file changes do not stale an otherwise valid capsule", async () =>
   );
   assert.equal(verified.status, 0, verified.stderr);
   assert.match(verified.stdout, /^VALID\b/u);
+});
+
+test("Git presentation configuration does not stale a capsule", async () => {
+  const context = await makeGitWorkspace();
+  await writeFile(join(context.workspace, "tracked.txt"), "dirty state\n", "utf8");
+  assert.equal(
+    runObserved(context, process.execPath, "-e", "process.exit(0)").status,
+    0,
+  );
+  const capsule = await seal(context);
+
+  git(context.workspace, "config", "color.ui", "always");
+  git(context.workspace, "config", "core.quotePath", "false");
+  git(context.workspace, "config", "core.fileMode", "false");
+  git(context.workspace, "config", "diff.noprefix", "true");
+  git(context.workspace, "config", "diff.mnemonicPrefix", "true");
+  git(context.workspace, "config", "diff.algorithm", "histogram");
+
+  const verified = runCli(
+    context.workspace,
+    "verify",
+    capsule.path.slice(context.workspace.length + 1),
+  );
+  assert.equal(verified.status, 0, verified.stderr);
+  assert.match(verified.stdout, /^VALID\b/u);
+});
+
+test("fingerprinting does not execute textconv, clean-filter, or fsmonitor code", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("POSIX executable-hook fixture");
+    return;
+  }
+
+  const context = await makeGitWorkspace();
+  const marker = join(context.workspace, "git-extension-executed");
+  const extension = join(context.workspace, ".git", "hostile-extension.mjs");
+  await writeFile(
+    extension,
+    [
+      "#!/usr/bin/env node",
+      'import { appendFileSync } from "node:fs";',
+      `appendFileSync(${JSON.stringify(marker)}, "executed\\n");`,
+      'process.stdout.write("hostile extension ran\\n");',
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await chmod(extension, 0o755);
+  await writeFile(
+    join(context.workspace, ".gitattributes"),
+    "tracked.txt diff=hostile filter=hostile\n",
+    "utf8",
+  );
+  git(context.workspace, "add", ".gitattributes");
+  git(context.workspace, "commit", "--quiet", "-m", "attributes");
+  git(context.workspace, "config", "diff.hostile.textconv", extension);
+  git(context.workspace, "config", "filter.hostile.clean", extension);
+  git(context.workspace, "config", "filter.hostile.required", "true");
+  git(context.workspace, "config", "core.fsmonitor", extension);
+  await writeFile(join(context.workspace, "tracked.txt"), "dirty\n", "utf8");
+
+  const sealed = runCli(
+    context.workspace,
+    "seal",
+    context.recorderArgument,
+  );
+
+  assert.equal(sealed.status, 0, sealed.stderr);
+  await assert.rejects(access(marker), { code: "ENOENT" });
+});
+
+test("changing only an untracked executable mode stales a capsule", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("Windows does not expose a stable POSIX executable bit");
+    return;
+  }
+
+  const context = await makeGitWorkspace();
+  const untracked = join(context.workspace, "local-tool.sh");
+  await writeFile(untracked, "#!/bin/sh\nexit 0\n", "utf8");
+  await chmod(untracked, 0o644);
+  assert.equal(
+    runObserved(context, process.execPath, "-e", "process.exit(0)").status,
+    0,
+  );
+  const capsule = await seal(context);
+
+  await chmod(untracked, 0o755);
+  const verified = runCli(
+    context.workspace,
+    "verify",
+    capsule.path.slice(context.workspace.length + 1),
+  );
+  assert.equal(verified.status, 4, verified.stderr);
+  assert.match(verified.stdout, /^STALE_WORKSPACE\b/u);
+});
+
+test("fingerprinting fails closed while the workspace keeps mutating", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("continuous-write fixture is POSIX-only");
+    return;
+  }
+
+  const context = await makeGitWorkspace();
+  const mutator = spawn(
+    process.execPath,
+    [
+      "-e",
+      [
+        'const { writeFileSync } = require("node:fs");',
+        "const target = process.argv[1];",
+        'process.stdout.write("READY\\n");',
+        "const end = Date.now() + 3000;",
+        "let count = 0;",
+        'while (Date.now() < end) writeFileSync(target, `${count++}\\n`.padEnd(65536, "x"));',
+      ].join(""),
+      join(context.workspace, "tracked.txt"),
+    ],
+    { stdio: ["ignore", "pipe", "inherit"] },
+  );
+  await new Promise((resolveReady, rejectReady) => {
+    mutator.once("error", rejectReady);
+    mutator.stdout.once("data", resolveReady);
+  });
+
+  const sealed = runCli(
+    context.workspace,
+    "seal",
+    context.recorderArgument,
+  );
+  mutator.kill("SIGKILL");
+
+  assert.equal(sealed.status, 6, sealed.stderr);
+  assert.match(sealed.stdout, /INVALID \[E_WORKSPACE_UNSTABLE\]/u);
 });
 
 test("verify returns TAMPERED after a referenced receipt changes", async () => {
@@ -409,6 +743,50 @@ test("verify returns TAMPERED after content-addressed capsule content changes", 
   assert.match(verified.stdout, /^TAMPERED\b/u);
 });
 
+test("seal rejects an existing capsule path that is a symbolic link", async (t) => {
+  const context = await makeGitWorkspace();
+  const capsule = await seal(context);
+  const decoy = join(context.recorder, "decoy-capsule.json");
+  await writeFile(decoy, await readFile(capsule.path));
+  await unlink(capsule.path);
+  try {
+    await symlink(decoy, capsule.path, "file");
+  } catch (error) {
+    if (error.code === "EPERM" || error.code === "EACCES") {
+      t.skip(`symlink unavailable: ${error.code}`);
+      return;
+    }
+    throw error;
+  }
+
+  const sealed = runCli(
+    context.workspace,
+    "seal",
+    context.recorderArgument,
+  );
+  assert.equal(sealed.status, 6, sealed.stderr);
+  assert.match(sealed.stdout, /INVALID \[E_IMMUTABLE_TARGET\]/u);
+});
+
+test("seal rejects malformed existing task state before creating a capsule", async () => {
+  const context = await makeGitWorkspace();
+  const statePath = join(context.recorder, "state.json");
+  const state = JSON.parse(await readFile(statePath, "utf8"));
+  state.activeTask = "x".repeat(201);
+  await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+
+  const sealed = runCli(
+    context.workspace,
+    "seal",
+    context.recorderArgument,
+  );
+  assert.equal(sealed.status, 6, sealed.stderr);
+  assert.match(sealed.stdout, /INVALID \[E_STATE_SCHEMA\]/u);
+  await assert.rejects(access(join(context.recorder, "capsules")), {
+    code: "ENOENT",
+  });
+});
+
 test("verify rejects unsupported capsule schemas as INVALID", async () => {
   const context = await makeGitWorkspace();
   const invalid = join(context.workspace, "unsupported.json");
@@ -445,6 +823,76 @@ test("verify rejects malformed workspace structures as INVALID even when re-addr
   assert.equal(verified.status, 6, verified.stderr);
   assert.match(verified.stdout, /^INVALID\b/u);
 });
+
+test("runtime and public schema reject non-portable re-addressed paths", async () => {
+  const context = await makeGitWorkspace();
+  const sealed = await seal(context);
+  const source = JSON.parse(await readFile(sealed.path, "utf8"));
+  const schema = JSON.parse(
+    await readFile(join(repositoryRoot, "schema", "handoff-v1.schema.json"), "utf8"),
+  );
+  const relativePathPattern = new RegExp(schema.$defs.relativePath.pattern, "u");
+  const hostilePaths = [
+    "ops//verify-handoff",
+    "ops/verify-handoff/",
+    "C:/ops/verify-handoff",
+    "ops/verify-handoff:stream",
+    "ops/\u0001verify-handoff",
+  ];
+
+  for (const [index, hostilePath] of hostilePaths.entries()) {
+    assert.equal(relativePathPattern.test(hostilePath), false, hostilePath);
+    const capsule = structuredClone(source);
+    capsule.recorder.path = hostilePath;
+    const { contentDigest: _ignored, ...unsigned } = capsule;
+    const digest = sha256(canonicalJson(unsigned));
+    capsule.contentDigest = `sha256:${digest}`;
+    const hostile = join(context.workspace, `sha256-${digest}.json`);
+    await writeFile(hostile, `${JSON.stringify(capsule, null, 2)}\n`, "utf8");
+
+    const verified = runCli(
+      context.workspace,
+      "verify",
+      hostile.slice(context.workspace.length + 1),
+    );
+    assert.equal(verified.status, 6, `${index}: ${verified.stderr}`);
+    assert.match(verified.stdout, /^INVALID \[E_CAPSULE_SCHEMA\]/u);
+  }
+});
+
+for (const field of ["artifacts", "receipts"]) {
+  test(`verify rejects null and non-object ${field} entries as INVALID`, async () => {
+    const context = await makeGitWorkspace();
+    for (const [kind, entry] of [
+      ["null", null],
+      ["number", 7],
+    ]) {
+      const hostile = join(context.workspace, `hostile-${field}-${kind}.json`);
+      const capsule = {
+        schemaVersion: 1,
+        kind: "dev.flight-recorder.handoff",
+        recorder: {
+          path: context.recorderArgument,
+          task: "Verify handoff",
+        },
+        workspace: {},
+        artifacts: [],
+        receipts: [],
+        contentDigest: `sha256:${"0".repeat(64)}`,
+      };
+      capsule[field] = [entry];
+      await writeFile(hostile, `${JSON.stringify(capsule)}\n`, "utf8");
+
+      const verified = runCli(
+        context.workspace,
+        "verify",
+        hostile.slice(context.workspace.length + 1),
+      );
+      assert.equal(verified.status, 6, verified.stderr);
+      assert.match(verified.stdout, /^INVALID\b/u);
+    }
+  });
+}
 
 test("seal rejects a recorder path that traverses a symlink", async (t) => {
   const context = await makeGitWorkspace();
@@ -484,3 +932,30 @@ test("seal rejects recorder paths outside the current workspace", async () => {
     code: "ENOENT",
   });
 });
+
+test(
+  "Windows can observe an explicit cmd.exe npm invocation without implicit shell mode",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const context = await makeGitWorkspace();
+    const result = runObserved(
+      context,
+      "cmd.exe",
+      "/d",
+      "/s",
+      "/c",
+      "npm --version",
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    const [receiptPath] = await receiptPaths(context);
+    const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
+    assert.deepEqual(receipt.command.argv, [
+      "cmd.exe",
+      "/d",
+      "/s",
+      "/c",
+      "npm --version",
+    ]);
+  },
+);

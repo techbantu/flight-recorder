@@ -239,6 +239,20 @@ test("rejects a target outside the working directory before writing", async () =
   await assert.rejects(access(outside), { code: "ENOENT" });
 });
 
+test("rejects a recorder directory that cannot be represented portably", async () => {
+  const workspace = await makeWorkspace();
+  const result = run(
+    workspace,
+    "Portable recorder",
+    "--dir",
+    "ops/portable:alternate-stream",
+  );
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /\[E_DIR_PORTABLE\]/u);
+  assert.deepEqual(await readdir(workspace), []);
+});
+
 test("rejects a symlinked target ancestor before writing outside", async () => {
   const workspace = await makeWorkspace();
   const outside = await makeWorkspace();
@@ -265,6 +279,8 @@ test("the package contains every advertised executable and template", () => {
   [
     "bin/fr.js",
     "bin/fr-init.js",
+    "docs/HANDOFF_V1.md",
+    "schema/command-receipt-v1.schema.json",
     "schema/handoff-v1.schema.json",
     "templates/checks.md",
     "templates/decisions.log",

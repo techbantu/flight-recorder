@@ -8,6 +8,12 @@ import {
 } from "node:fs/promises";
 import { basename, join, relative, resolve, sep } from "node:path";
 import {
+  compareCodeUnits,
+  isPortableRelativePath,
+  isRecord,
+  isValidTask,
+} from "./contracts.js";
+import {
   canonicalJson,
   sha256,
   summarizeFile,
@@ -54,26 +60,20 @@ const outputObserver = (stream, destination) => {
   return () => ({ bytes, sha256: digest.digest("hex") });
 };
 
-const processResult = (child, timeoutMs) =>
+const processResult = (child) =>
   new Promise((resolveResult) => {
     let spawnErrorCode = null;
-    let timedOut = false;
-    let forceTimer;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGTERM");
-      forceTimer = setTimeout(() => child.kill("SIGKILL"), 1_000);
-      forceTimer.unref();
-    }, timeoutMs);
-    timeout.unref();
 
     child.once("error", (error) => {
       spawnErrorCode = error.code ?? "E_SPAWN";
     });
     child.once("close", (exitCode, signal) => {
-      clearTimeout(timeout);
-      clearTimeout(forceTimer);
-      resolveResult({ exitCode, signal, spawnErrorCode, timedOut });
+      resolveResult({
+        exitCode,
+        signal,
+        spawnErrorCode,
+        timedOut: false,
+      });
     });
   });
 
@@ -98,21 +98,9 @@ export const runObservedCommand = async ({
   cwd,
   recorderArgument,
   argv,
-  timeoutMs = 300_000,
 }) => {
   if (!Array.isArray(argv) || argv.length === 0 || !argv[0]) {
     throw new HandoffError("E_COMMAND_EMPTY", "Provide a command after --.", 2);
-  }
-  if (
-    !Number.isSafeInteger(timeoutMs) ||
-    timeoutMs < 1 ||
-    timeoutMs > 3_600_000
-  ) {
-    throw new HandoffError(
-      "E_TIMEOUT",
-      "Timeout must be an integer from 1 to 3600000 milliseconds.",
-      2,
-    );
   }
 
   const recorder = await loadRecorder(cwd, recorderArgument);
@@ -132,7 +120,7 @@ export const runObservedCommand = async ({
   });
   const stdout = outputObserver(child.stdout, process.stdout);
   const stderr = outputObserver(child.stderr, process.stderr);
-  const result = await processResult(child, timeoutMs);
+  const result = await processResult(child);
   const completedAt = new Date().toISOString();
   const durationMs = Number(process.hrtime.bigint() - started) / 1_000_000;
   const workspaceAfter = await fingerprintWorkspace({
@@ -168,9 +156,8 @@ export const runObservedCommand = async ({
   const receiptPath = resolve(receiptsDirectory, receiptName);
   await writeImmutable(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
 
-  const processExitCode = result.timedOut
-    ? 124
-    : result.spawnErrorCode === "ENOENT"
+  const processExitCode =
+    result.spawnErrorCode === "ENOENT"
       ? 127
       : Number.isInteger(result.exitCode) &&
           result.exitCode >= 0 &&
@@ -189,10 +176,16 @@ const listFiles = async (root, directory, prefix) => {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = [];
   for (const entry of entries.sort((left, right) =>
-    left.name.localeCompare(right.name),
+    compareCodeUnits(left.name, right.name),
   )) {
     const path = resolve(directory, entry.name);
     const displayPath = portablePath(join(prefix, entry.name));
+    if (!isPortableRelativePath(displayPath)) {
+      throw new HandoffError(
+        "E_PATH_PORTABLE",
+        `Receipt path is not portable: ${displayPath}`,
+      );
+    }
     if (entry.isSymbolicLink()) {
       throw new HandoffError(
         "E_PATH_SYMLINK",
@@ -263,18 +256,6 @@ export const sealRecorder = async ({ cwd, recorderArgument }) => {
   };
 };
 
-const isRecord = (value) =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
-
-const safePortableRelativePath = (value) =>
-  typeof value === "string" &&
-  value.length > 0 &&
-  !value.startsWith("/") &&
-  !value.includes("\\") &&
-  value
-    .split("/")
-    .every((segment) => segment && segment !== "." && segment !== "..");
-
 const hasExactKeys = (value, keys) =>
   isRecord(value) &&
   Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
@@ -288,11 +269,20 @@ const validDigest = (value) =>
 
 const validSummary = (value) =>
   hasExactKeys(value, ["path", "bytes", "sha256"]) &&
-  safePortableRelativePath(value.path) &&
+  isPortableRelativePath(value.path) &&
   Number.isSafeInteger(value.bytes) &&
   value.bytes >= 0 &&
   typeof value.sha256 === "string" &&
   /^[a-f0-9]{64}$/u.test(value.sha256);
+
+const validWorkspaceSummary = (value) =>
+  hasExactKeys(value, ["path", "bytes", "sha256", "mode"]) &&
+  isPortableRelativePath(value.path) &&
+  Number.isSafeInteger(value.bytes) &&
+  value.bytes >= 0 &&
+  typeof value.sha256 === "string" &&
+  /^[a-f0-9]{64}$/u.test(value.sha256) &&
+  (value.mode === "100644" || value.mode === "100755");
 
 const validWorkspace = (value) =>
   hasExactKeys(value, [
@@ -300,8 +290,8 @@ const validWorkspace = (value) =>
     "vcs",
     "head",
     "excludedRecorderPath",
-    "staged",
-    "unstaged",
+    "index",
+    "worktree",
     "untracked",
     "submodules",
   ]) &&
@@ -309,12 +299,75 @@ const validWorkspace = (value) =>
   value.vcs === "git" &&
   typeof value.head === "string" &&
   /^[a-f0-9]{40,64}$/u.test(value.head) &&
-  safePortableRelativePath(value.excludedRecorderPath) &&
-  validDigest(value.staged) &&
-  validDigest(value.unstaged) &&
+  isPortableRelativePath(value.excludedRecorderPath) &&
+  validDigest(value.index) &&
+  validDigest(value.worktree) &&
   Array.isArray(value.untracked) &&
-  value.untracked.every(validSummary) &&
+  value.untracked.every(validWorkspaceSummary) &&
   validDigest(value.submodules);
+
+const validTimestamp = (value) => {
+  if (typeof value !== "string") return false;
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value;
+};
+
+const validCommand = (value) =>
+  hasExactKeys(value, ["argv", "cwd"]) &&
+  Array.isArray(value.argv) &&
+  value.argv.length > 0 &&
+  value.argv.every((argument) => typeof argument === "string") &&
+  value.argv[0].length > 0 &&
+  (value.cwd === "." || isPortableRelativePath(value.cwd));
+
+const validResult = (value) =>
+  hasExactKeys(value, [
+    "exitCode",
+    "signal",
+    "timedOut",
+    "spawnErrorCode",
+    "stdout",
+    "stderr",
+  ]) &&
+  (value.exitCode === null || Number.isSafeInteger(value.exitCode)) &&
+  (value.signal === null || typeof value.signal === "string") &&
+  typeof value.timedOut === "boolean" &&
+  (value.spawnErrorCode === null || typeof value.spawnErrorCode === "string") &&
+  validDigest(value.stdout) &&
+  validDigest(value.stderr);
+
+const validReceipt = (value) =>
+  hasExactKeys(value, [
+    "schemaVersion",
+    "kind",
+    "id",
+    "observation",
+    "task",
+    "command",
+    "startedAt",
+    "completedAt",
+    "durationMs",
+    "result",
+    "workspaceBefore",
+    "workspaceAfter",
+  ]) &&
+  value.schemaVersion === schemaVersion &&
+  value.kind === receiptKind &&
+  typeof value.id === "string" &&
+  /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u.test(
+    value.id,
+  ) &&
+  value.observation === "observed-by-flight-recorder" &&
+  isValidTask(value.task) &&
+  validCommand(value.command) &&
+  validTimestamp(value.startedAt) &&
+  validTimestamp(value.completedAt) &&
+  typeof value.durationMs === "number" &&
+  Number.isFinite(value.durationMs) &&
+  value.durationMs >= 0 &&
+  validResult(value.result) &&
+  validWorkspace(value.workspaceBefore) &&
+  validWorkspace(value.workspaceAfter);
 
 const validateCapsule = (capsule) => {
   if (
@@ -336,17 +389,20 @@ const validateCapsule = (capsule) => {
   if (!Array.isArray(capsule.artifacts) || !Array.isArray(capsule.receipts)) {
     return false;
   }
+  if (
+    !capsule.artifacts.every(validSummary) ||
+    !capsule.receipts.every(validSummary)
+  ) {
+    return false;
+  }
   const artifactNames = capsule.artifacts.map(({ path }) => path);
   const receiptNames = capsule.receipts.map(({ path }) => path);
   return (
     hasExactKeys(capsule.recorder, ["path", "task"]) &&
-    safePortableRelativePath(capsule.recorder.path) &&
-    typeof capsule.recorder.task === "string" &&
-    capsule.recorder.task.length > 0 &&
+    isPortableRelativePath(capsule.recorder.path) &&
+    isValidTask(capsule.recorder.task) &&
     validWorkspace(capsule.workspace) &&
-    capsule.artifacts.every(validSummary) &&
     canonicalJson(artifactNames) === canonicalJson(artifactPaths) &&
-    capsule.receipts.every(validSummary) &&
     receiptNames.every((path) => path.startsWith("receipts/")) &&
     new Set(receiptNames).size === receiptNames.length &&
     capsule.workspace.excludedRecorderPath === capsule.recorder.path &&
@@ -369,19 +425,24 @@ const untamperedSummaries = async (recorder, summaries) => {
   return true;
 };
 
-const receiptSupportsWorkspace = async (recorder, summary, workspace) => {
+const receiptSupportsWorkspace = async (
+  recorder,
+  summary,
+  workspace,
+  expectedTask,
+) => {
   if (!summary.path.endsWith(".json")) return false;
   try {
     const receipt = JSON.parse(
       await readFile(resolve(recorder.path, summary.path), "utf8"),
     );
     return (
-      isRecord(receipt) &&
-      receipt.schemaVersion === schemaVersion &&
-      receipt.kind === receiptKind &&
-      receipt.observation === "observed-by-flight-recorder" &&
-      isRecord(receipt.result) &&
+      validReceipt(receipt) &&
+      receipt.task === expectedTask &&
       receipt.result.exitCode === 0 &&
+      receipt.result.timedOut === false &&
+      receipt.result.signal === null &&
+      receipt.result.spawnErrorCode === null &&
       canonicalJson(receipt.workspaceAfter) === canonicalJson(workspace)
     );
   } catch {
@@ -478,7 +539,12 @@ export const verifyCapsule = async ({ cwd, capsuleArgument }) => {
 
   const observations = await Promise.all(
     capsule.receipts.map((summary) =>
-      receiptSupportsWorkspace(recorder, summary, capsule.workspace),
+      receiptSupportsWorkspace(
+        recorder,
+        summary,
+        capsule.workspace,
+        capsule.recorder.task,
+      ),
     ),
   );
   if (!observations.some(Boolean)) {

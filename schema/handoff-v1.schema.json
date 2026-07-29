@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/techbantu/flight-recorder/blob/master/schema/handoff-v1.schema.json",
+  "$id": "urn:techbantu:flight-recorder:schema:handoff:v1",
   "title": "Flight Recorder Handoff Capsule v1",
   "type": "object",
   "additionalProperties": false,
@@ -32,9 +32,7 @@
           "$ref": "#/$defs/relativePath"
         },
         "task": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 200
+          "$ref": "#/$defs/task"
         }
       }
     },
@@ -43,14 +41,28 @@
     },
     "artifacts": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/fileSummary"
-      }
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/stateSummary"
+        },
+        {
+          "$ref": "#/$defs/decisionsSummary"
+        },
+        {
+          "$ref": "#/$defs/checksSummary"
+        },
+        {
+          "$ref": "#/$defs/resumeSummary"
+        }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
     },
     "receipts": {
       "type": "array",
       "items": {
-        "$ref": "#/$defs/fileSummary"
+        "$ref": "#/$defs/receiptSummary"
       }
     },
     "contentDigest": {
@@ -69,7 +81,8 @@
       "properties": {
         "bytes": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9007199254740991
         },
         "sha256": {
           "type": "string",
@@ -91,7 +104,8 @@
         },
         "bytes": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9007199254740991
         },
         "sha256": {
           "type": "string",
@@ -102,7 +116,113 @@
     "relativePath": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(/|$))[^\\\\]+$"
+      "pattern": "^(?!\\.\\.?(?:$|/))(?!.*\\/\\.\\.?(?:$|/))(?!.*[\\u0000-\\u001F\\u007F:])[^/\\\\]+(?:/[^/\\\\]+)*$"
+    },
+    "task": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^(?=.*\\S)[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "workspaceFileSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "bytes",
+        "sha256",
+        "mode"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "mode": {
+          "enum": [
+            "100644",
+            "100755"
+          ]
+        }
+      }
+    },
+    "receiptSummary": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/fileSummary"
+        },
+        {
+          "properties": {
+            "path": {
+              "pattern": "^receipts/"
+            }
+          }
+        }
+      ]
+    },
+    "stateSummary": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/fileSummary"
+        },
+        {
+          "properties": {
+            "path": {
+              "const": "state.json"
+            }
+          }
+        }
+      ]
+    },
+    "decisionsSummary": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/fileSummary"
+        },
+        {
+          "properties": {
+            "path": {
+              "const": "decisions.log"
+            }
+          }
+        }
+      ]
+    },
+    "checksSummary": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/fileSummary"
+        },
+        {
+          "properties": {
+            "path": {
+              "const": "checks.md"
+            }
+          }
+        }
+      ]
+    },
+    "resumeSummary": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/fileSummary"
+        },
+        {
+          "properties": {
+            "path": {
+              "const": "resume.md"
+            }
+          }
+        }
+      ]
     },
     "workspace": {
       "type": "object",
@@ -112,8 +232,8 @@
         "vcs",
         "head",
         "excludedRecorderPath",
-        "staged",
-        "unstaged",
+        "index",
+        "worktree",
         "untracked",
         "submodules"
       ],
@@ -131,17 +251,18 @@
         "excludedRecorderPath": {
           "$ref": "#/$defs/relativePath"
         },
-        "staged": {
+        "index": {
           "$ref": "#/$defs/digest"
         },
-        "unstaged": {
+        "worktree": {
           "$ref": "#/$defs/digest"
         },
         "untracked": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/fileSummary"
-          }
+            "$ref": "#/$defs/workspaceFileSummary"
+          },
+          "uniqueItems": true
         },
         "submodules": {
           "$ref": "#/$defs/digest"
