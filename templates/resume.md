@@ -1,6 +1,7 @@
 # Resume Pointer
 
 ## Current objective
+{{TASK}}
 
 ## Last known state
 

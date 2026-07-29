@@ -1,0 +1,7 @@
+node_modules/
+*.tgz
+
+# These source artifacts are intentionally versioned despite broad global ignores.
+!bin/
+!bin/fr-init.js
+!templates/decisions.log

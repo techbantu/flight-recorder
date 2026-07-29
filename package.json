@@ -1,10 +1,47 @@
 {
   "name": "@techbantu/flight-recorder",
   "version": "0.2.0",
-  "description": "Agent-grade flight recorder protocol (state/decisions/resume/receipts) with an optional task generator.",
+  "description": "Initialize evidence-backed, resumable task records for humans and coding agents.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/techbantu/flight-recorder.git"
+  },
+  "homepage": "https://github.com/techbantu/flight-recorder#readme",
+  "bugs": {
+    "url": "https://github.com/techbantu/flight-recorder/issues"
+  },
+  "keywords": [
+    "ai-agents",
+    "developer-tools",
+    "task-resumption",
+    "verification"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "templates/",
+    "docs/RELEASING.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "LICENSE",
+    "README.md",
+    "SECURITY.md"
+  ],
   "bin": {
     "fr-init": "./bin/fr-init.js"
+  },
+  "scripts": {
+    "lint": "node --check bin/fr-init.js && node --check src/recorder.js && node --check test/fr-init.test.js",
+    "test": "node --test",
+    "check": "npm run lint && npm test",
+    "prepack": "npm run check"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
