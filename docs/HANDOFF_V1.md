@@ -70,10 +70,10 @@ uses only:
 
 It never invokes diff or clean filters, textconv drivers, or repository hooks.
 The `index` digest hashes the canonical index-entry list. The `worktree` digest
-hashes actual bytes and normalized modes for tracked regular files, link text
-for tracked symbolic links, and explicit missing-file states. Untracked regular
-files are listed with path, byte count, SHA-256, and normalized mode.
-Git-ignored files are outside v1.
+hashes actual bytes and normalized modes for tracked regular files, raw
+link-target bytes for tracked symbolic links, and explicit missing-file states.
+Untracked regular files are listed with path, byte count, SHA-256, and
+normalized mode. Git-ignored files are outside v1.
 
 For gitlinks, the index object IDs and the initialized checkout's HEAD are
 hashed. Uninitialized and missing checkouts are distinct. Dirty, ignored, or

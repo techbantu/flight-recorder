@@ -370,7 +370,7 @@ const trackedWorktreeEntry = async (repoRoot, path) => {
   if (!status) return { path, kind: "missing" };
   if (status.isSymbolicLink()) {
     const before = await lstat(absolute, { bigint: true });
-    const target = await readlink(absolute, "utf8");
+    const target = await readlink(absolute, { encoding: "buffer" });
     const after = await lstat(absolute, { bigint: true });
     if (fileIdentity(before) !== fileIdentity(after)) {
       throw new WorkspaceError(
@@ -382,7 +382,7 @@ const trackedWorktreeEntry = async (repoRoot, path) => {
       path,
       kind: "symlink",
       mode: "120000",
-      ...digestBuffer(Buffer.from(target, "utf8")),
+      ...digestBuffer(target),
     };
   }
   if (!status.isFile()) {

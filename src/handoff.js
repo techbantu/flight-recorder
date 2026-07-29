@@ -307,7 +307,12 @@ const validWorkspace = (value) =>
   validDigest(value.submodules);
 
 const validTimestamp = (value) => {
-  if (typeof value !== "string") return false;
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)
+  ) {
+    return false;
+  }
   const parsed = new Date(value);
   return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value;
 };

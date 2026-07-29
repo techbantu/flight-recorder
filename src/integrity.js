@@ -10,16 +10,27 @@ import {
 import { basename, dirname, join } from "node:path";
 import { compareCodeUnits } from "./contracts.js";
 
-const normalized = (value) => {
-  if (Array.isArray(value)) return value.map(normalized);
+const serializeCanonical = (value) => {
+  if (Array.isArray(value)) {
+    const items = [];
+    for (let index = 0; index < value.length; index += 1) {
+      if (!(index in value)) {
+        throw new TypeError("Canonical JSON does not accept sparse arrays.");
+      }
+      items.push(serializeCanonical(value[index]));
+    }
+    return `[${items.join(",")}]`;
+  }
   if (
     value === null ||
-    typeof value === "string" ||
     typeof value === "boolean"
   ) {
-    return value;
+    return JSON.stringify(value);
   }
-  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return JSON.stringify(value);
+  }
   if (
     typeof value !== "object" ||
     (Object.getPrototypeOf(value) !== Object.prototype &&
@@ -27,15 +38,20 @@ const normalized = (value) => {
   ) {
     throw new TypeError("Canonical JSON accepts only finite JSON data.");
   }
-
-  return Object.fromEntries(
-    Object.keys(value)
-      .sort(compareCodeUnits)
-      .map((key) => [key, normalized(value[key])]),
-  );
+  const keys = Object.keys(value);
+  if (Reflect.ownKeys(value).length !== keys.length) {
+    throw new TypeError("Canonical JSON accepts only JSON object members.");
+  }
+  return `{${keys
+    .sort(compareCodeUnits)
+    .map(
+      (key) =>
+        `${JSON.stringify(key)}:${serializeCanonical(value[key])}`,
+    )
+    .join(",")}}`;
 };
 
-export const canonicalJson = (value) => JSON.stringify(normalized(value));
+export const canonicalJson = (value) => serializeCanonical(value);
 
 export const sha256 = (value) =>
   createHash("sha256").update(value).digest("hex");

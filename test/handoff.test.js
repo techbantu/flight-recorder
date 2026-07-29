@@ -22,6 +22,7 @@ import {
   sha256 as productionSha256,
   writeImmutable,
 } from "../src/integrity.js";
+import { isValidTask } from "../src/contracts.js";
 
 const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const initPath = join(repositoryRoot, "bin", "fr-init.js");
@@ -312,6 +313,10 @@ test("canonical JSON has a reproducible UTF-8 SHA-256 known vector", () => {
     productionSha256(productionCanonicalJson(value)),
     "d0f47fc89494118614fb87e455d261df890212a0afdcc4e65c0c124b84828143",
   );
+  assert.equal(
+    productionCanonicalJson({ 2: "two", 10: "ten", a: "aye" }),
+    '{"10":"ten","2":"two","a":"aye"}',
+  );
 });
 
 test("public v1 schemas are parseable, stable, and share workspace contracts", async () => {
@@ -350,6 +355,9 @@ test("public v1 schemas are parseable, stable, and share workspace contracts", a
     handoff.$defs.workspaceFileSummary.properties.mode.enum,
     ["100644", "100755"],
   );
+  const taskPattern = new RegExp(handoff.$defs.task.pattern, "u");
+  assert.equal(isValidTask("\u2028A"), true);
+  assert.equal(taskPattern.test("\u2028A"), true);
 });
 
 test("verify returns UNVERIFIED when a fresh capsule has no successful observed command", async () => {
@@ -421,6 +429,9 @@ for (const [name, mutate] of [
   }],
   ["an unexpected result field", (receipt) => {
     receipt.result.unexpected = true;
+  }],
+  ["an expanded-year timestamp", (receipt) => {
+    receipt.startedAt = "+010000-01-01T00:00:00.000Z";
   }],
 ]) {
   test(`verify refuses ${name} as successful proof`, async () => {
@@ -529,6 +540,42 @@ test("verify returns STALE_WORKSPACE after a submodule checkout HEAD changes", a
   git(checkout, "add", "module.txt");
   git(checkout, "commit", "--quiet", "-m", "second");
 
+  const verified = runCli(
+    context.workspace,
+    "verify",
+    capsule.path.slice(context.workspace.length + 1),
+  );
+  assert.equal(verified.status, 4, verified.stderr);
+  assert.match(verified.stdout, /^STALE_WORKSPACE\b/u);
+});
+
+test("tracked symbolic-link targets are fingerprinted as raw bytes", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("raw POSIX symbolic-link target fixture");
+    return;
+  }
+
+  const context = await makeGitWorkspace();
+  const linkPath = join(context.workspace, "raw-target-link");
+  try {
+    await symlink(Buffer.from([0xff]), linkPath);
+  } catch (error) {
+    if (error.code === "EINVAL" || error.code === "EPERM") {
+      t.skip(`raw symbolic-link targets unavailable: ${error.code}`);
+      return;
+    }
+    throw error;
+  }
+  git(context.workspace, "add", "raw-target-link");
+  git(context.workspace, "commit", "--quiet", "-m", "raw target link");
+  assert.equal(
+    runObserved(context, process.execPath, "-e", "process.exit(0)").status,
+    0,
+  );
+  const capsule = await seal(context);
+
+  await unlink(linkPath);
+  await symlink(Buffer.from([0xfe]), linkPath);
   const verified = runCli(
     context.workspace,
     "verify",
@@ -838,6 +885,8 @@ test("runtime and public schema reject non-portable re-addressed paths", async (
     "C:/ops/verify-handoff",
     "ops/verify-handoff:stream",
     "ops/\u0001verify-handoff",
+    "ops/\u2028/../verify-handoff",
+    "ops/\u2028:stream",
   ];
 
   for (const [index, hostilePath] of hostilePaths.entries()) {
