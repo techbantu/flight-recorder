@@ -23,8 +23,10 @@
     "node": ">=20"
   },
   "files": [
+    ".claude-plugin/",
     "bin/",
     "src/",
+    "skills/",
     "templates/",
     "schema/",
     "docs/HANDOFF_V1.md",
@@ -43,6 +45,7 @@
     "lint": "node --check bin/fr.js && node --check bin/fr-init.js && node --check src/contracts.js && node --check src/handoff.js && node --check src/integrity.js && node --check src/recorder.js && node --check src/workspace.js && node --check test/fr-init.test.js && node --check test/handoff.test.js",
     "test": "node --test",
     "check": "npm run lint && npm test",
+    "plugin:validate": "claude plugin validate --strict .",
     "prepack": "npm run check"
   },
   "publishConfig": {

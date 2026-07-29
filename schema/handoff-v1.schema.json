@@ -160,8 +160,10 @@
           "$ref": "#/$defs/fileSummary"
         },
         {
+          "type": "object",
           "properties": {
             "path": {
+              "type": "string",
               "pattern": "^receipts/"
             }
           }
@@ -174,8 +176,10 @@
           "$ref": "#/$defs/fileSummary"
         },
         {
+          "type": "object",
           "properties": {
             "path": {
+              "type": "string",
               "const": "state.json"
             }
           }
@@ -188,8 +192,10 @@
           "$ref": "#/$defs/fileSummary"
         },
         {
+          "type": "object",
           "properties": {
             "path": {
+              "type": "string",
               "const": "decisions.log"
             }
           }
@@ -202,8 +208,10 @@
           "$ref": "#/$defs/fileSummary"
         },
         {
+          "type": "object",
           "properties": {
             "path": {
+              "type": "string",
               "const": "checks.md"
             }
           }
@@ -216,8 +224,10 @@
           "$ref": "#/$defs/fileSummary"
         },
         {
+          "type": "object",
           "properties": {
             "path": {
+              "type": "string",
               "const": "resume.md"
             }
           }

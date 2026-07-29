@@ -7,6 +7,8 @@ All notable changes will be documented here.
 ### Added
 
 - A working `fr-init` CLI with deterministic local templates.
+- An explicit-only Claude Code plugin adapter for local `fr-init` setup, with
+  no hooks, agents, MCP servers, telemetry, or automatic invocation.
 - A provider-neutral `fr run` command that witnesses an exact argument array
   without invoking a shell or retaining stdout, stderr, or environment content.
 - Immutable, content-addressed `fr seal` handoff capsules.

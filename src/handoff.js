@@ -284,6 +284,9 @@ const validWorkspaceSummary = (value) =>
   /^[a-f0-9]{64}$/u.test(value.sha256) &&
   (value.mode === "100644" || value.mode === "100755");
 
+const hasUniqueCanonicalItems = (items) =>
+  new Set(items.map((item) => canonicalJson(item))).size === items.length;
+
 const validWorkspace = (value) =>
   hasExactKeys(value, [
     "version",
@@ -304,6 +307,7 @@ const validWorkspace = (value) =>
   validDigest(value.worktree) &&
   Array.isArray(value.untracked) &&
   value.untracked.every(validWorkspaceSummary) &&
+  hasUniqueCanonicalItems(value.untracked) &&
   validDigest(value.submodules);
 
 const validTimestamp = (value) => {

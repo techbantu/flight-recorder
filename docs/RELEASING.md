@@ -7,24 +7,41 @@ the package.
 
 1. Confirm the intended version is not already present:
    `npm view @techbantu/flight-recorder version`
-2. Update `package.json`, `package-lock.json`, and `CHANGELOG.md` together.
+2. Update `package.json`, `package-lock.json`,
+   `.claude-plugin/plugin.json`, and `CHANGELOG.md` together. The npm and
+   plugin versions must match.
 3. Run:
 
    ```bash
    npm ci
    npm run check
    npm pack --dry-run
+   npm run plugin:validate
    ```
 
 4. Inspect the dry-run file list for both executables, `src/`, all four
-   templates, `docs/HANDOFF_V1.md`, and both JSON Schemas under `schema/`.
+   templates, `docs/HANDOFF_V1.md`, both JSON Schemas under `schema/`, the
+   Claude Code plugin manifest, and its one explicit-only `init` skill.
 5. Run `npm pack --pack-destination <clean-temporary-directory>`, install that
    tarball in a separate empty project, and smoke-test creation, retry, and
    conflict rejection, literal-argument command capture, sealing, valid
    verification, and stale-workspace rejection on a supported Node version.
    On Windows, exercise the documented explicit
    `cmd.exe /d /s /c "npm --version"` observation path.
-6. Verify the default branch CI is green.
+6. Generate a fresh capsule with one command receipt and validate both files
+   with an independent JSON Schema Draft 2020-12 implementation. If using
+   Ajv CLI, load `ajv-formats` for `date-time` and set
+   `--strict-tuples=false`; the receipt intentionally requires a non-empty
+   first argument while permitting any number of later string arguments.
+7. Verify the default branch CI is green.
+
+Validate the unpacked npm tarball as a Claude Code plugin too. Loading the
+plugin must not invoke Flight Recorder or change the project working tree
+before a user explicitly invokes the skill.
+
+Submission to Anthropic's plugin directory is a separate, externally visible
+maintainer approval step. Package validation and a green pull request do not
+submit it.
 
 ## Publish
 

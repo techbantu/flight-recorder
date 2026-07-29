@@ -265,6 +265,70 @@ test("rejects a symlinked target ancestor before writing outside", async () => {
   assert.deepEqual(await readdir(outside), []);
 });
 
+test("the Claude Code adapter declares an explicit-only least-capability surface", async () => {
+  const manifest = JSON.parse(
+    await readFile(join(repositoryRoot, ".claude-plugin", "plugin.json"), "utf8"),
+  );
+  const packageMetadata = JSON.parse(
+    await readFile(join(repositoryRoot, "package.json"), "utf8"),
+  );
+  const skill = await readFile(
+    join(repositoryRoot, "skills", "init", "SKILL.md"),
+    "utf8",
+  );
+
+  assert.equal(manifest.name, "flight-recorder");
+  assert.equal(manifest.version, packageMetadata.version);
+  assert.deepEqual(await readdir(join(repositoryRoot, "skills")), ["init"]);
+  [
+    "agents",
+    "dependencies",
+    "hooks",
+    "lspServers",
+    "mcpServers",
+    "monitors",
+    "settings",
+  ].forEach((field) => assert.equal(field in manifest, false, `unexpected ${field}`));
+  assert.match(skill, /^disable-model-invocation: true$/mu);
+  assert.match(skill, /^user-invocable: true$/mu);
+  assert.match(
+    skill,
+    /node "\$\{CLAUDE_PLUGIN_ROOT\}\/bin\/fr-init\.js".*`--`/u,
+  );
+  assert.doesNotMatch(skill, /^allowed-tools:/mu);
+  assert.doesNotMatch(skill, /!\s*`/u);
+});
+
+test("the plugin-root invocation initializes a shell-like task as literal data", async () => {
+  const workspace = await makeWorkspace();
+  const task = "Review --dir ../literal; $(not-run)";
+  const environment = {
+    ...process.env,
+    CLAUDE_PLUGIN_ROOT: repositoryRoot,
+    PATH: dirname(process.execPath),
+  };
+  const result = spawnSync(
+    "node",
+    [join(environment.CLAUDE_PLUGIN_ROOT, "bin", "fr-init.js"), "--", task],
+    {
+      cwd: workspace,
+      encoding: "utf8",
+      env: environment,
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Created flight recorder/u);
+  assert.match(
+    await readFile(
+      join(workspace, "ops", "review-dir-literal-not-run", "resume.md"),
+      "utf8",
+    ),
+    /## Current objective\nReview --dir \.\.\/literal; \$\(not-run\)\n/u,
+  );
+  assert.deepEqual(await readdir(workspace), ["ops"]);
+});
+
 test("the package contains every advertised executable and template", () => {
   const result = spawnSync(
     npmCommand,
@@ -277,11 +341,13 @@ test("the package contains every advertised executable and template", () => {
   const paths = new Set(files.map(({ path }) => path));
 
   [
+    ".claude-plugin/plugin.json",
     "bin/fr.js",
     "bin/fr-init.js",
     "docs/HANDOFF_V1.md",
     "schema/command-receipt-v1.schema.json",
     "schema/handoff-v1.schema.json",
+    "skills/init/SKILL.md",
     "templates/checks.md",
     "templates/decisions.log",
     "templates/resume.md",

@@ -4,8 +4,12 @@ Flight Recorder is a small, local-first CLI for durable, self-checking handoffs
 between humans and coding agents. It keeps current state, decisions, next
 actions, verification checks, and observed command receipts together.
 
-It does not record your terminal automatically, call an AI provider, upload
-files, or decide that a successful command proves semantic correctness.
+Use it when work crosses an agent, chat, or human boundary and you need to
+detect whether a passing check still belongs to the current Git workspace—or
+whether the recorded evidence changed afterward.
+
+The core CLI does not record your terminal automatically, call an AI provider,
+upload files, or decide that a successful command proves semantic correctness.
 
 > **Release status:** the source is a tested release candidate. The
 > `@techbantu/flight-recorder` package is not currently published on npm.
@@ -51,6 +55,35 @@ npx --package @techbantu/flight-recorder fr-init "Fix share previews"
 ```
 
 Do not use that npm command until the package exists in the registry.
+
+## Claude Code plugin (opt-in)
+
+The repository also contains a minimal Claude Code plugin adapter. The adapter
+defines no load-time hook or command and contains no code that invokes Flight
+Recorder, starts a background process, transmits telemetry, or changes the
+project working tree. It exposes one manually invoked skill that instructs
+Claude to call the same local `fr-init` executable:
+
+```bash
+claude --plugin-dir .
+```
+
+Then, inside Claude Code:
+
+```text
+/flight-recorder:init Fix share previews
+```
+
+The skill instructions require an explicit task, tell Claude to pass it as one
+safely quoted argument, and tell Claude not to choose a custom output directory
+or invoke `fr run`, `fr seal`, or `fr verify`. These are model instructions,
+not a deterministic restriction on the underlying CLI. The adapter resolves
+the bundled `bin/fr-init.js` through Claude's `CLAUDE_PLUGIN_ROOT`; it does not
+depend on an npm-generated alias or global install, and nothing runs
+automatically.
+
+This checkout has not been submitted to or accepted by Anthropic's plugin
+directory. The core CLI remains provider-neutral and works without Claude Code.
 
 ## Choose a directory
 
@@ -130,6 +163,14 @@ packaged schemas are [handoff-v1.schema.json](schema/handoff-v1.schema.json)
 and
 [command-receipt-v1.schema.json](schema/command-receipt-v1.schema.json).
 
+A minimal drift proof is:
+
+```text
+verify the sealed capsule     -> VALID
+edit any tracked source file  -> workspace changes
+verify the same capsule again -> STALE_WORKSPACE
+```
+
 The recorder directory is excluded from the Git workspace fingerprint because
 its artifacts and receipts are hashed separately. Git-ignored files are not
 part of the fingerprint. Fingerprinting reads inert Git index metadata and raw
@@ -188,6 +229,10 @@ local file deletion.
 Installing from npm or cloning from GitHub uses those services, but running
 `fr-init` does not.
 
+Invoking `/flight-recorder:init` is a Claude Code interaction: Claude processes
+the supplied task text under the user's configured Claude Code service and data
+terms. Run `fr-init` directly for the provider-neutral, local-only path.
+
 `fr run` records the exact executable and argument array. That array may retain
 absolute paths, usernames, URLs, or embedded tokens, so do not place passwords,
 tokens, or private content on the command line. Flight Recorder does not query
@@ -211,6 +256,7 @@ operator's authority.
 npm ci
 npm run check
 npm pack --dry-run
+npm run plugin:validate
 ```
 
 `npm run check` performs syntax checks and the Node test suite. The tests cover
@@ -219,6 +265,9 @@ conflict rejection, literal task rendering, exact argument execution, output
 minimization, canonical content addressing, inert and stable workspace
 fingerprinting, strict receipt proof, integrity and freshness outcomes, invalid
 input, path containment, and package contents.
+
+Plugin validation is a separate maintainer check because ordinary contributors
+and CI environments may not have Claude Code installed.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change.
 

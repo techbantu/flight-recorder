@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "flight-recorder",
+  "version": "0.2.0",
+  "displayName": "Flight Recorder",
+  "description": "Explicitly initialize local, evidence-backed task handoffs for Claude Code. No hooks, telemetry, or background execution.",
+  "author": {
+    "name": "TechBantu",
+    "url": "https://github.com/techbantu"
+  },
+  "homepage": "https://github.com/techbantu/flight-recorder#readme",
+  "repository": "https://github.com/techbantu/flight-recorder",
+  "license": "MIT",
+  "keywords": [
+    "developer-tools",
+    "task-handoff",
+    "verification",
+    "local-first"
+  ]
+}

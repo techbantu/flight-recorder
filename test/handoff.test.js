@@ -355,9 +355,23 @@ test("public v1 schemas are parseable, stable, and share workspace contracts", a
     handoff.$defs.workspaceFileSummary.properties.mode.enum,
     ["100644", "100755"],
   );
+  for (const definition of [
+    "receiptSummary",
+    "stateSummary",
+    "decisionsSummary",
+    "checksSummary",
+    "resumeSummary",
+  ]) {
+    const overlay = handoff.$defs[definition].allOf[1];
+    assert.equal(overlay.type, "object");
+    assert.equal(overlay.properties.path.type, "string");
+  }
   const taskPattern = new RegExp(handoff.$defs.task.pattern, "u");
   assert.equal(isValidTask("\u2028A"), true);
   assert.equal(taskPattern.test("\u2028A"), true);
+  const timestampPattern = new RegExp(receipt.properties.startedAt.pattern, "u");
+  assert.equal(timestampPattern.test("2026-07-29T23:59:59.000Z"), true);
+  assert.equal(timestampPattern.test("1990-12-31T23:59:60.000Z"), false);
 });
 
 test("verify returns UNVERIFIED when a fresh capsule has no successful observed command", async () => {
@@ -432,6 +446,18 @@ for (const [name, mutate] of [
   }],
   ["an expanded-year timestamp", (receipt) => {
     receipt.startedAt = "+010000-01-01T00:00:00.000Z";
+  }],
+  ["a leap-second timestamp", (receipt) => {
+    receipt.startedAt = "1990-12-31T23:59:60.000Z";
+  }],
+  ["duplicate untracked workspace entries", (receipt) => {
+    const entry = {
+      path: "duplicate.txt",
+      bytes: 0,
+      sha256: "0".repeat(64),
+      mode: "100644",
+    };
+    receipt.workspaceBefore.untracked = [entry, structuredClone(entry)];
   }],
 ]) {
   test(`verify refuses ${name} as successful proof`, async () => {
