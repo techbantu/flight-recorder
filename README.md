@@ -1,11 +1,11 @@
 # Flight Recorder
 
-Flight Recorder is a small, local-first CLI that creates a durable handoff for
-an interrupted development task. It gives a human or coding agent one place to
-find current state, decisions, next actions, verification checks, and receipts.
+Flight Recorder is a small, local-first CLI for durable, self-checking handoffs
+between humans and coding agents. It keeps current state, decisions, next
+actions, verification checks, and observed command receipts together.
 
-It does not record your terminal, call an AI provider, upload files, or decide
-that work is complete.
+It does not record your terminal automatically, call an AI provider, upload
+files, or decide that a successful command proves semantic correctness.
 
 > **Release status:** the source is a tested release candidate. The
 > `@techbantu/flight-recorder` package is not currently published on npm.
@@ -63,6 +63,63 @@ node bin/fr-init.js "Audit release evidence" --dir .flight-recorder/release-audi
 
 Run `node bin/fr-init.js --help` for the complete CLI usage.
 
+## Record and seal a handoff
+
+`fr run`, `fr seal`, and `fr verify` require a Git working tree with an
+existing HEAD commit. `fr-init` can still initialize a recorder without Git.
+
+Run a verification command through Flight Recorder. Arguments after `--` are
+passed directly to the executable without a shell:
+
+```bash
+node bin/fr.js run ops/fix-share-previews -- npm test
+```
+
+The command's stdout and stderr still appear in the terminal. The immutable
+receipt stores the exact argument array, exit status, timing, byte counts, and
+SHA-256 hashes, but does not separately retain the observed output bytes or
+environment. Because exact arguments are retained, output text written
+literally inside an argument remains part of that argument.
+
+Seal the current handoff:
+
+```bash
+node bin/fr.js seal ops/fix-share-previews
+```
+
+Expected output:
+
+```text
+SEALED ops/fix-share-previews/capsules/sha256-<digest>.json
+```
+
+Verify the printed capsule before resuming:
+
+```bash
+node bin/fr.js verify \
+  ops/fix-share-previews/capsules/sha256-<digest>.json
+```
+
+`fr verify` reports exactly one outcome:
+
+- `VALID`: capsule and referenced files are intact, the Git workspace is
+  current, and at least one successful observed command matches that workspace.
+- `STALE_WORKSPACE`: the capsule is intact, but HEAD, staged changes, unstaged
+  changes, non-ignored untracked files, or recorded submodule commit/status
+  differs.
+- `TAMPERED`: the content-addressed capsule or a referenced artifact changed.
+- `INVALID`: the schema or a required safe path is malformed or unsupported.
+- `UNVERIFIED`: the capsule is current but has no successful observed command
+  for that exact workspace.
+
+Exit codes are 0, 4, 5, 6, and 3 respectively. The public interchange contract
+is [schema/handoff-v1.schema.json](schema/handoff-v1.schema.json).
+
+The recorder directory is excluded from the Git workspace fingerprint because
+its artifacts and receipts are hashed separately. Git-ignored files are not
+part of the fingerprint. The v1 submodule summary does not recursively hash
+ignored or untracked files inside a submodule.
+
 ## Safety contract
 
 - Existing artifacts are never overwritten.
@@ -74,7 +131,11 @@ Run `node bin/fr-init.js --help` for the complete CLI usage.
 - A file/directory type conflict is rejected before any write.
 - `--dir` cannot escape the current working directory.
 - There is no `--force` mode.
-- The CLI has no runtime dependencies, telemetry, account, or network call.
+- Flight Recorder itself has no runtime dependencies, telemetry, account, or
+  network call; an explicitly invoked command may use the network.
+- Receipts and capsules are published with atomic, exclusive filesystem writes.
+- Recorder, capsule, and receipt paths cannot traverse symbolic links.
+- `fr run` invokes an explicit argument array with `shell: false`.
 
 If creation stops because of a local filesystem error, correct the permission or
 path problem and run the same command again. The retry is additive and keeps
@@ -92,8 +153,9 @@ use a different `--dir`; do not delete evidence merely to bypass the check.
 4. Save concrete evidence under `receipts/`.
 5. End each work session by updating the next actions in `resume.md`.
 
-Flight Recorder does not validate whether a receipt proves a claim. That
-judgment remains with the operator and reviewer.
+Flight Recorder validates capsule integrity, workspace freshness, and whether
+it directly observed a successful process exit. It cannot validate that a test
+was well-designed or that a claim is semantically correct.
 
 ## Privacy
 
@@ -106,6 +168,19 @@ local file deletion.
 Installing from npm or cloning from GitHub uses those services, but running
 `fr-init` does not.
 
+`fr run` records the exact executable and argument array. Command arguments can
+contain secrets, so do not place tokens, passwords, or private content on the
+command line. Output content and environment variables are not stored by
+default; exact arguments are stored, and terminal software or the invoked
+command may log output independently. Git remote URLs are never included in a
+receipt or capsule.
+
+SHA-256 addresses establish self-consistency and detect later local changes.
+They do not establish authorship, trusted identity, or independent attestation.
+A local operator can fabricate evidence and recompute a new internally
+consistent capsule. Reviewers must still judge the command, the test, and the
+operator's authority.
+
 ## Development
 
 ```bash
@@ -116,8 +191,9 @@ npm pack --dry-run
 
 `npm run check` performs syntax checks and the Node test suite. The tests cover
 creation, safe retry and repair, recorder identity and task collisions,
-conflict rejection, literal task rendering, invalid input, path containment,
-and package contents.
+conflict rejection, literal task rendering, exact argument execution, output
+minimization, content addressing, integrity and freshness outcomes, invalid
+input, path containment, and package contents.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change.
 

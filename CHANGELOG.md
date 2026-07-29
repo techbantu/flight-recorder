@@ -7,6 +7,11 @@ All notable changes will be documented here.
 ### Added
 
 - A working `fr-init` CLI with deterministic local templates.
+- A provider-neutral `fr run` command that witnesses an exact argument array
+  without invoking a shell or retaining stdout, stderr, or environment content.
+- Immutable, content-addressed `fr seal` handoff capsules.
+- `fr verify` integrity, workspace-freshness, and observed-proof outcomes.
+- A public versioned handoff capsule JSON Schema.
 - Safe retry and partial-repair behavior that preserves existing evidence.
 - Versioned recorder identity with task-mismatch and malformed-state rejection.
 - Stable input, target-conflict, and path-boundary errors.

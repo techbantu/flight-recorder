@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/techbantu/flight-recorder/blob/master/schema/handoff-v1.schema.json",
+  "title": "Flight Recorder Handoff Capsule v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "recorder",
+    "workspace",
+    "artifacts",
+    "receipts",
+    "contentDigest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "dev.flight-recorder.handoff"
+    },
+    "recorder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "task"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "task": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      }
+    },
+    "workspace": {
+      "$ref": "#/$defs/workspace"
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/fileSummary"
+      }
+    },
+    "receipts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/fileSummary"
+      }
+    },
+    "contentDigest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bytes",
+        "sha256"
+      ],
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "fileSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "bytes",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(/|$))[^\\\\]+$"
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "vcs",
+        "head",
+        "excludedRecorderPath",
+        "staged",
+        "unstaged",
+        "untracked",
+        "submodules"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "vcs": {
+          "const": "git"
+        },
+        "head": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40,64}$"
+        },
+        "excludedRecorderPath": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "staged": {
+          "$ref": "#/$defs/digest"
+        },
+        "unstaged": {
+          "$ref": "#/$defs/digest"
+        },
+        "untracked": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/fileSummary"
+          }
+        },
+        "submodules": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    }
+  }
+}

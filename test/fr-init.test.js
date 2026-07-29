@@ -263,7 +263,9 @@ test("the package contains every advertised executable and template", () => {
   const paths = new Set(files.map(({ path }) => path));
 
   [
+    "bin/fr.js",
     "bin/fr-init.js",
+    "schema/handoff-v1.schema.json",
     "templates/checks.md",
     "templates/decisions.log",
     "templates/resume.md",

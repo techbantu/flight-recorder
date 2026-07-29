@@ -9,6 +9,7 @@ Good contributions include:
 
 - reproducible bug fixes with regression tests;
 - safer no-overwrite or path behavior;
+- stricter capsule integrity, freshness, and privacy behavior;
 - Node.js portability fixes for macOS, Linux, or Windows;
 - clearer templates and documentation that match runtime behavior.
 
@@ -17,6 +18,7 @@ Out of scope for the current project:
 - telemetry or analytics;
 - accounts, a hosted service, or an AI-provider dependency;
 - automatic capture of shell history, source code, or private files;
+- AI summaries, hosted accounts, task graphs, or provider-specific core logic;
 - a force-overwrite mode without a separately reviewed safety design.
 
 ## Set up
@@ -48,3 +50,6 @@ project content as fixtures.
 
 Include the Node version, operating system, exact command, exit code, and
 sanitized output. Replace private paths and task content before posting.
+
+Never use a real token or secret as a command argument in a fixture: observed
+receipts intentionally retain the exact argument array.

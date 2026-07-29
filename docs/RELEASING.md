@@ -16,11 +16,12 @@ the package.
    npm pack --dry-run
    ```
 
-4. Inspect the dry-run file list for `bin/fr-init.js`, `src/`, and all four
-   templates.
+4. Inspect the dry-run file list for both executables, `src/`, all four
+   templates, and `schema/handoff-v1.schema.json`.
 5. Run `npm pack --pack-destination <clean-temporary-directory>`, install that
    tarball in a separate empty project, and smoke-test creation, retry, and
-   conflict rejection on a supported Node version.
+   conflict rejection, literal-argument command capture, sealing, valid
+   verification, and stale-workspace rejection on a supported Node version.
 6. Verify the default branch CI is green.
 
 ## Publish

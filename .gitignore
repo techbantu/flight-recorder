@@ -3,5 +3,6 @@ node_modules/
 
 # These source artifacts are intentionally versioned despite broad global ignores.
 !bin/
+!bin/fr.js
 !bin/fr-init.js
 !templates/decisions.log

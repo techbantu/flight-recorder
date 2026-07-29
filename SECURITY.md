@@ -17,6 +17,19 @@ wait for a maintainer-provided private channel before sharing details.
 
 ## Security boundaries
 
-`fr-init` writes only inside the current working directory, never overwrites an
-existing artifact, and makes no runtime network request. Users remain
-responsible for reviewing task artifacts before committing or sharing them.
+Flight Recorder writes only inside the current working directory, never
+overwrites an existing artifact, and makes no network request of its own.
+`fr run` executes only the explicit argument array after `--` with
+`shell: false`; the invoked program can still access the network and filesystem
+under the user's authority.
+
+Receipts retain exact command arguments but only hashes and byte counts for
+the bytes observed on stdout and stderr. Text written literally inside an
+argument remains part of the retained argument. Do not pass secrets on the
+command line. Capsules exclude environment variables and Git remote URLs. Users
+remain responsible for reviewing task text and artifact paths before committing
+or sharing them.
+
+Content hashes detect later changes and workspace drift. They do not prove
+authorship, trusted identity, test quality, or semantic correctness, and a local
+operator can construct a new internally consistent capsule.
