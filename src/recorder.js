@@ -9,6 +9,7 @@ const templates = {
 };
 
 const missing = Symbol("missing");
+const schemaVersion = 1;
 
 export class RecorderError extends Error {
   constructor(code, message, exitCode = 1) {
@@ -144,13 +145,53 @@ const loadArtifacts = async (task) => {
     {
       path: "resume.md",
       kind: "file",
-      content: resume.replaceAll("{{TASK}}", task),
+      content: resume.replaceAll("{{TASK}}", () => task),
     },
     { path: "receipts", kind: "directory" },
   ];
 };
 
-const preflight = async (target, artifacts) => {
+const isRecord = (value) =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+const validateExistingState = async (path, task) => {
+  const content = await readFile(path, "utf8");
+  let state;
+
+  try {
+    state = JSON.parse(content);
+  } catch {
+    throw new RecorderError(
+      "E_STATE_INVALID",
+      "Existing state.json is not valid JSON. No files were changed.",
+    );
+  }
+
+  const matchesSchema =
+    isRecord(state) &&
+    state.schemaVersion === schemaVersion &&
+    typeof state.project === "string" &&
+    typeof state.mode === "string" &&
+    typeof state.activeTask === "string" &&
+    isRecord(state.ids) &&
+    (state.lastUpdated === null || typeof state.lastUpdated === "string");
+
+  if (!matchesSchema) {
+    throw new RecorderError(
+      "E_STATE_SCHEMA",
+      `Existing state.json is not Flight Recorder schema ${schemaVersion}. No files were changed.`,
+    );
+  }
+
+  if (state.activeTask !== task) {
+    throw new RecorderError(
+      "E_TASK_MISMATCH",
+      "Existing recorder belongs to a different task. Choose another --dir. No files were changed.",
+    );
+  }
+};
+
+const preflight = async (target, artifacts, task) => {
   const targetStatus = await inspect(target);
 
   if (targetStatus !== missing && !targetStatus.isDirectory()) {
@@ -191,6 +232,17 @@ const preflight = async (target, artifacts) => {
     }
   });
 
+  if (entries.length > 0) {
+    const stateStatus = statuses.find(({ artifact }) => artifact.path === "state.json");
+    if (stateStatus.status === missing) {
+      throw new RecorderError(
+        "E_STATE_MISSING",
+        "Non-empty target is missing Flight Recorder state.json. No files were changed.",
+      );
+    }
+    await validateExistingState(resolve(target, "state.json"), task);
+  }
+
   return statuses;
 };
 
@@ -225,7 +277,7 @@ export const initializeRecorder = async ({
   const target = resolve(cwd, directory ?? "ops", directory ? "" : taskSlug(task));
   await assertContainedTarget(cwd, target);
   const artifacts = await loadArtifacts(task);
-  const statuses = await preflight(target, artifacts);
+  const statuses = await preflight(target, artifacts, task);
 
   await mkdir(target, { recursive: true });
 

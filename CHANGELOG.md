@@ -8,6 +8,7 @@ All notable changes will be documented here.
 
 - A working `fr-init` CLI with deterministic local templates.
 - Safe retry and partial-repair behavior that preserves existing evidence.
+- Versioned recorder identity with task-mismatch and malformed-state rejection.
 - Stable input, target-conflict, and path-boundary errors.
 - A Node test suite, package-content regression check, and CI matrix.
 - Contributor, security, privacy, and troubleshooting guidance.
@@ -16,3 +17,5 @@ All notable changes will be documented here.
 
 - The package now contains the executable and decision template advertised by
   its README and package metadata.
+- Task names containing replacement tokens such as `$&` are written exactly to
+  `resume.md`.

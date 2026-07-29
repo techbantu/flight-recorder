@@ -57,6 +57,7 @@ test("creates the complete recorder with deterministic task state", async () => 
     "state.json",
   ]);
   assert.deepEqual(JSON.parse(await readFile(join(recorder, "state.json"), "utf8")), {
+    schemaVersion: 1,
     project: "",
     mode: "dev",
     activeTask: "Fix share previews",
@@ -85,6 +86,49 @@ test("a retry preserves evidence and repairs only missing artifacts", async () =
   assert.equal(await readFile(join(recorder, "decisions.log"), "utf8"), "user evidence\n");
 });
 
+test("a valid state file can recover every later artifact after partial failure", async () => {
+  const workspace = await makeWorkspace();
+  const recorder = join(workspace, "ops", "recover-partial");
+
+  assert.equal(run(workspace, "Recover partial").status, 0);
+  const stateBefore = await readFile(join(recorder, "state.json"), "utf8");
+  await Promise.all([
+    rm(join(recorder, "decisions.log")),
+    rm(join(recorder, "checks.md")),
+    rm(join(recorder, "resume.md")),
+    rm(join(recorder, "receipts"), { recursive: true }),
+  ]);
+
+  const result = run(workspace, "Recover partial");
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Repaired flight recorder/);
+  assert.equal(await readFile(join(recorder, "state.json"), "utf8"), stateBefore);
+  assert.deepEqual((await readdir(recorder)).sort(), [
+    "checks.md",
+    "decisions.log",
+    "receipts",
+    "resume.md",
+    "state.json",
+  ]);
+});
+
+test("rejects a task mismatch when different titles collide on one slug", async () => {
+  const workspace = await makeWorkspace();
+  const recorder = join(workspace, "ops", "fix-bugs");
+
+  assert.equal(run(workspace, "Fix bugs").status, 0);
+  const stateBefore = await readFile(join(recorder, "state.json"), "utf8");
+  const resumeBefore = await readFile(join(recorder, "resume.md"), "utf8");
+
+  const result = run(workspace, "Fix-bugs");
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /\[E_TASK_MISMATCH\]/);
+  assert.equal(await readFile(join(recorder, "state.json"), "utf8"), stateBefore);
+  assert.equal(await readFile(join(recorder, "resume.md"), "utf8"), resumeBefore);
+});
+
 test("refuses a non-recorder directory without changing it", async () => {
   const workspace = await makeWorkspace();
   const occupied = join(workspace, "occupied");
@@ -96,6 +140,49 @@ test("refuses a non-recorder directory without changing it", async () => {
   assert.equal(result.status, 1);
   assert.match(result.stderr, /\[E_TARGET_NOT_EMPTY\]/);
   assert.deepEqual(await readdir(occupied), ["notes.txt"]);
+});
+
+test("rejects an unrelated directory with arbitrary state and extra files", async () => {
+  const workspace = await makeWorkspace();
+  const occupied = join(workspace, "occupied-state");
+  const arbitraryState = {
+    project: "unrelated",
+    mode: "dev",
+    activeTask: "Do not overwrite",
+    ids: {},
+    lastUpdated: null,
+  };
+  await mkdir(occupied);
+  await writeFile(
+    join(occupied, "state.json"),
+    `${JSON.stringify(arbitraryState, null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(join(occupied, "notes.txt"), "keep me\n", "utf8");
+
+  const result = run(workspace, "Do not overwrite", "--dir", "occupied-state");
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /\[E_STATE_SCHEMA\]/);
+  assert.deepEqual((await readdir(occupied)).sort(), ["notes.txt", "state.json"]);
+  assert.deepEqual(
+    JSON.parse(await readFile(join(occupied, "state.json"), "utf8")),
+    arbitraryState,
+  );
+});
+
+test("rejects malformed recorder state before writing", async () => {
+  const workspace = await makeWorkspace();
+  const occupied = join(workspace, "malformed-state");
+  await mkdir(occupied);
+  await writeFile(join(occupied, "state.json"), "{not-json}\n", "utf8");
+
+  const result = run(workspace, "Malformed", "--dir", "malformed-state");
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /\[E_STATE_INVALID\]/);
+  assert.deepEqual(await readdir(occupied), ["state.json"]);
+  assert.equal(await readFile(join(occupied, "state.json"), "utf8"), "{not-json}\n");
 });
 
 test("preflights path conflicts before writing any artifact", async () => {
@@ -127,6 +214,17 @@ test("rejects a missing task as a usage error", async () => {
   assert.equal(result.status, 2);
   assert.match(result.stderr, /\[E_TASK_EMPTY\]/);
   assert.deepEqual(await readdir(workspace), []);
+});
+
+test("writes task text containing replacement tokens exactly", async () => {
+  const workspace = await makeWorkspace();
+  const result = run(workspace, "Fix $& billing");
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(
+    await readFile(join(workspace, "ops", "fix-billing", "resume.md"), "utf8"),
+    /## Current objective\nFix \$& billing\n/,
+  );
 });
 
 test("rejects a target outside the working directory before writing", async () => {

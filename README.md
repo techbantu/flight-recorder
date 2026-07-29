@@ -66,8 +66,11 @@ Run `node bin/fr-init.js --help` for the complete CLI usage.
 ## Safety contract
 
 - Existing artifacts are never overwritten.
-- A retry preserves edits and creates only missing artifacts.
-- An unrelated non-empty target is rejected before any write.
+- A retry preserves edits and creates only missing artifacts when the existing
+  schema and task identity match.
+- `state.json` carries schema version 1 and binds the directory to one exact
+  task name, preventing slug collisions from mixing two tasks.
+- An unrelated or malformed non-empty target is rejected before any write.
 - A file/directory type conflict is rejected before any write.
 - `--dir` cannot escape the current working directory.
 - There is no `--force` mode.
@@ -76,6 +79,10 @@ Run `node bin/fr-init.js --help` for the complete CLI usage.
 If creation stops because of a local filesystem error, correct the permission or
 path problem and run the same command again. The retry is additive and keeps
 artifacts that were already created.
+
+If the CLI reports `E_STATE_SCHEMA`, `E_STATE_INVALID`, or `E_TASK_MISMATCH`, it
+will not repair that directory automatically. Review its existing contents and
+use a different `--dir`; do not delete evidence merely to bypass the check.
 
 ## Working protocol
 
@@ -108,8 +115,9 @@ npm pack --dry-run
 ```
 
 `npm run check` performs syntax checks and the Node test suite. The tests cover
-creation, safe retry and repair, conflict rejection, invalid input, path
-containment, and package contents.
+creation, safe retry and repair, recorder identity and task collisions,
+conflict rejection, literal task rendering, invalid input, path containment,
+and package contents.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change.
 
