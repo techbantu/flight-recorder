@@ -738,18 +738,29 @@ test("fingerprinting fails closed while the workspace keeps mutating", async (t)
       [
         'const { writeFileSync, writeSync } = require("node:fs");',
         "const target = process.argv[1];",
-        'writeSync(1, "READY\\n");',
         "let count = 0;",
+        'writeFileSync(target, `${count++}\\n`.padEnd(65536, "x"));',
+        'writeSync(1, "READY\\n");',
         'for (;;) writeFileSync(target, `${count++}\\n`.padEnd(65536, "x"));',
       ].join(""),
       join(context.workspace, "tracked.txt"),
     ],
     { stdio: ["ignore", "pipe", "inherit"] },
   );
-  await new Promise((resolveReady, rejectReady) => {
-    mutator.once("error", rejectReady);
-    mutator.stdout.once("data", resolveReady);
-  });
+  const closed = new Promise((resolveClose) =>
+    mutator.once("close", (code, signal) => resolveClose({ code, signal })),
+  );
+  await Promise.race([
+    new Promise((resolveReady, rejectReady) => {
+      mutator.once("error", rejectReady);
+      mutator.stdout.once("data", resolveReady);
+    }),
+    closed.then(({ code, signal }) => {
+      throw new Error(
+        `Workspace mutator exited before readiness: ${code ?? signal}.`,
+      );
+    }),
+  ]);
 
   let sealed;
   try {
@@ -759,10 +770,9 @@ test("fingerprinting fails closed while the workspace keeps mutating", async (t)
       context.recorderArgument,
     );
   } finally {
-    const closed = new Promise((resolveClose) =>
-      mutator.once("close", resolveClose),
-    );
-    mutator.kill("SIGKILL");
+    if (mutator.exitCode === null && mutator.signalCode === null) {
+      mutator.kill("SIGKILL");
+    }
     await closed;
   }
 
