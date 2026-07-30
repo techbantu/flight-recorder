@@ -13,10 +13,10 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, test } from "node:test";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import {
   canonicalJson as productionCanonicalJson,
   sha256 as productionSha256,
@@ -724,57 +724,46 @@ test("changing only an untracked executable mode stales a capsule", async (t) =>
   assert.match(verified.stdout, /^STALE_WORKSPACE\b/u);
 });
 
-test("fingerprinting fails closed while the workspace keeps mutating", async (t) => {
+test("fingerprinting fails closed when the workspace changes between captures", async (t) => {
   if (process.platform === "win32") {
-    t.skip("continuous-write fixture is POSIX-only");
+    t.skip("executable Git-shim fixture is POSIX-only");
     return;
   }
 
   const context = await makeGitWorkspace();
-  const mutator = spawn(
-    process.execPath,
+  const shimDirectory = join(context.recorder, "test-bin");
+  const shimPath = join(shimDirectory, "git");
+  const counterPath = join(context.recorder, "git-shim-count");
+  await mkdir(shimDirectory);
+  await writeFile(counterPath, "0", "utf8");
+  await writeFile(
+    shimPath,
     [
-      "-e",
-      [
-        'const { writeFileSync, writeSync } = require("node:fs");',
-        "const target = process.argv[1];",
-        "let count = 0;",
-        'writeFileSync(target, `${count++}\\n`.padEnd(65536, "x"));',
-        'writeSync(1, "READY\\n");',
-        'for (;;) writeFileSync(target, `${count++}\\n`.padEnd(65536, "x"));',
-      ].join(""),
-      join(context.workspace, "tracked.txt"),
-    ],
-    { stdio: ["ignore", "pipe", "inherit"] },
+      "#!/bin/sh",
+      'PATH="$FLIGHT_RECORDER_REAL_PATH" git "$@"',
+      "git_status=$?",
+      'PATH="$FLIGHT_RECORDER_REAL_PATH" node -e \'const { readFileSync, writeFileSync } = require("node:fs"); const [target, counter] = process.argv.slice(1); const count = Number(readFileSync(counter, "utf8")); writeFileSync(counter, String(count + 1)); writeFileSync(target, `${count}\\n`.padEnd(65536, "x"));\' "$FLIGHT_RECORDER_MUTATION_TARGET" "$FLIGHT_RECORDER_MUTATION_COUNTER"',
+      'exit "$git_status"',
+      "",
+    ].join("\n"),
+    "utf8",
   );
-  const closed = new Promise((resolveClose) =>
-    mutator.once("close", (code, signal) => resolveClose({ code, signal })),
-  );
-  await Promise.race([
-    new Promise((resolveReady, rejectReady) => {
-      mutator.once("error", rejectReady);
-      mutator.stdout.once("data", resolveReady);
-    }),
-    closed.then(({ code, signal }) => {
-      throw new Error(
-        `Workspace mutator exited before readiness: ${code ?? signal}.`,
-      );
-    }),
-  ]);
+  await chmod(shimPath, 0o755);
 
-  let sealed;
-  try {
-    sealed = runCli(
-      context.workspace,
-      "seal",
-      context.recorderArgument,
-    );
-  } finally {
-    if (mutator.exitCode === null && mutator.signalCode === null) {
-      mutator.kill("SIGKILL");
-    }
-    await closed;
-  }
+  const sealed = runProcess(
+    context.workspace,
+    process.execPath,
+    [cliPath, "seal", context.recorderArgument],
+    {
+      env: {
+        ...process.env,
+        PATH: `${shimDirectory}${delimiter}${process.env.PATH}`,
+        FLIGHT_RECORDER_REAL_PATH: process.env.PATH,
+        FLIGHT_RECORDER_MUTATION_COUNTER: counterPath,
+        FLIGHT_RECORDER_MUTATION_TARGET: join(context.workspace, "tracked.txt"),
+      },
+    },
+  );
 
   assert.equal(sealed.status, 6, sealed.stderr);
   assert.match(sealed.stdout, /INVALID \[E_WORKSPACE_UNSTABLE\]/u);
