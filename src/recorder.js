@@ -1,5 +1,10 @@
 import { lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import {
+  isPortableRelativePath,
+  isRecord,
+  isValidTask,
+} from "./contracts.js";
 
 const templates = {
   state: new URL("../templates/state.json", import.meta.url),
@@ -41,7 +46,7 @@ const validateTask = (task) => {
     );
   }
 
-  if (normalized.length > 200) {
+  if (!isValidTask(normalized)) {
     throw new RecorderError(
       "E_TASK_LONG",
       "Task names must be 200 characters or fewer.",
@@ -101,6 +106,14 @@ const assertContainedTarget = async (cwd, target) => {
       2,
     );
   }
+  const portableBoundary = boundary.split(sep).join("/");
+  if (portableBoundary && !isPortableRelativePath(portableBoundary)) {
+    throw new RecorderError(
+      "E_DIR_PORTABLE",
+      "--dir must use a portable relative path without colons or ambiguous segments.",
+      2,
+    );
+  }
 
   const segments = boundary ? boundary.split(sep) : [];
   let current = root;
@@ -151,9 +164,6 @@ const loadArtifacts = async (task) => {
   ];
 };
 
-const isRecord = (value) =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
-
 const validateExistingState = async (path, task) => {
   const content = await readFile(path, "utf8");
   let state;
@@ -172,7 +182,7 @@ const validateExistingState = async (path, task) => {
     state.schemaVersion === schemaVersion &&
     typeof state.project === "string" &&
     typeof state.mode === "string" &&
-    typeof state.activeTask === "string" &&
+    isValidTask(state.activeTask) &&
     isRecord(state.ids) &&
     (state.lastUpdated === null || typeof state.lastUpdated === "string");
 

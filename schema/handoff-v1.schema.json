@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:techbantu:flight-recorder:schema:handoff:v1",
+  "title": "Flight Recorder Handoff Capsule v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "recorder",
+    "workspace",
+    "artifacts",
+    "receipts",
+    "contentDigest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "dev.flight-recorder.handoff"
+    },
+    "recorder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "task"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "task": {
+          "$ref": "#/$defs/task"
+        }
+      }
+    },
+    "workspace": {
+      "$ref": "#/$defs/workspace"
+    },
+    "artifacts": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/stateSummary"
+        },
+        {
+          "$ref": "#/$defs/decisionsSummary"
+        },
+        {
+          "$ref": "#/$defs/checksSummary"
+        },
+        {
+          "$ref": "#/$defs/resumeSummary"
+        }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "receipts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/receiptSummary"
+      }
+    },
+    "contentDigest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bytes",
+        "sha256"
+      ],
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "fileSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "bytes",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!\\.\\.?(?:$|/))(?![\\s\\S]*\\/\\.\\.?(?:$|/))(?![\\s\\S]*[\\u0000-\\u001F\\u007F:])[^/\\\\]+(?:/[^/\\\\]+)*$"
+    },
+    "task": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^(?=[\\s\\S]*\\S)[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "workspaceFileSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "bytes",
+        "sha256",
+        "mode"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "mode": {
+          "enum": [
+            "100644",
+            "100755"
+          ]
+        }
+      }
+    },
+    "receiptSummary": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/fileSummary"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "pattern": "^receipts/"
+            }
+          }
+        }
+      ]
+    },
+    "stateSummary": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/fileSummary"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "const": "state.json"
+            }
+          }
+        }
+      ]
+    },
+    "decisionsSummary": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/fileSummary"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "const": "decisions.log"
+            }
+          }
+        }
+      ]
+    },
+    "checksSummary": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/fileSummary"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "const": "checks.md"
+            }
+          }
+        }
+      ]
+    },
+    "resumeSummary": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/fileSummary"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "const": "resume.md"
+            }
+          }
+        }
+      ]
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "vcs",
+        "head",
+        "excludedRecorderPath",
+        "index",
+        "worktree",
+        "untracked",
+        "submodules"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "vcs": {
+          "const": "git"
+        },
+        "head": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40,64}$"
+        },
+        "excludedRecorderPath": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "index": {
+          "$ref": "#/$defs/digest"
+        },
+        "worktree": {
+          "$ref": "#/$defs/digest"
+        },
+        "untracked": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/workspaceFileSummary"
+          },
+          "uniqueItems": true
+        },
+        "submodules": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    }
+  }
+}

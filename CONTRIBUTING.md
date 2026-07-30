@@ -9,6 +9,9 @@ Good contributions include:
 
 - reproducible bug fixes with regression tests;
 - safer no-overwrite or path behavior;
+- stricter capsule integrity, freshness, and privacy behavior;
+- real ecosystem adapters and conformance fixtures discovered while adopting
+  the GitHub Action;
 - Node.js portability fixes for macOS, Linux, or Windows;
 - clearer templates and documentation that match runtime behavior.
 
@@ -17,6 +20,7 @@ Out of scope for the current project:
 - telemetry or analytics;
 - accounts, a hosted service, or an AI-provider dependency;
 - automatic capture of shell history, source code, or private files;
+- AI summaries, hosted accounts, task graphs, or provider-specific core logic;
 - a force-overwrite mode without a separately reviewed safety design.
 
 ## Set up
@@ -44,7 +48,16 @@ built-in test runner.
 Never commit real secrets, customer data, private receipts, or proprietary
 project content as fixtures.
 
+Contribution counts are not a project objective. Cosmetic, duplicated,
+generated, reciprocal, or metric-driven pull requests will be closed rather
+than merged. A contribution tied to an external integration must identify the
+real interoperability problem and include the smallest regression or
+conformance proof that reproduces it.
+
 ## Report a bug
 
 Include the Node version, operating system, exact command, exit code, and
 sanitized output. Replace private paths and task content before posting.
+
+Never use a real token or secret as a command argument in a fixture: observed
+receipts intentionally retain the exact argument array.

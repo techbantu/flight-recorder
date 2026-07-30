@@ -25,6 +25,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -40,3 +42,73 @@ jobs:
 
       - name: Inspect package
         run: npm pack --dry-run --ignore-scripts
+
+      - name: Exercise local evidence Action
+        id: evidence
+        uses: ./
+        with:
+          task: Verify Flight Recorder on Ubuntu and Node ${{ matrix.node }}
+          argv: '["node","--version"]'
+
+      - name: Check Action outputs
+        env:
+          FLIGHT_RECORDER_OUTCOME: ${{ steps.evidence.outputs.outcome }}
+          FLIGHT_RECORDER_CONTENT_DIGEST: ${{ steps.evidence.outputs.capsule-content-digest }}
+          FLIGHT_RECORDER_FILE_DIGEST: ${{ steps.evidence.outputs.capsule-file-digest }}
+          FLIGHT_RECORDER_PREDICATE_DIGEST: ${{ steps.evidence.outputs.predicate-file-digest }}
+          FLIGHT_RECORDER_WORKSPACE_HEAD: ${{ steps.evidence.outputs.workspace-head }}
+          FLIGHT_RECORDER_ATTESTATION_BUNDLE: ${{ steps.evidence.outputs.attestation-bundle-path }}
+          FLIGHT_RECORDER_ATTESTATION_CAPSULE: ${{ steps.evidence.outputs.attestation-capsule-path }}
+          FLIGHT_RECORDER_ATTESTATION_PREDICATE: ${{ steps.evidence.outputs.attestation-predicate-path }}
+        run: node scripts/assert-action-outputs.js
+
+  portability:
+    name: ${{ matrix.os }} / Node 22
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --ignore-scripts
+
+      - name: Check
+        run: npm run check
+
+      - name: Inspect package
+        run: npm pack --dry-run --ignore-scripts
+
+      - name: Exercise local evidence Action
+        id: evidence
+        uses: ./
+        with:
+          task: Verify Flight Recorder on ${{ matrix.os }} and Node 22
+          argv: '["node","--version"]'
+
+      - name: Check Action outputs
+        env:
+          FLIGHT_RECORDER_OUTCOME: ${{ steps.evidence.outputs.outcome }}
+          FLIGHT_RECORDER_CONTENT_DIGEST: ${{ steps.evidence.outputs.capsule-content-digest }}
+          FLIGHT_RECORDER_FILE_DIGEST: ${{ steps.evidence.outputs.capsule-file-digest }}
+          FLIGHT_RECORDER_PREDICATE_DIGEST: ${{ steps.evidence.outputs.predicate-file-digest }}
+          FLIGHT_RECORDER_WORKSPACE_HEAD: ${{ steps.evidence.outputs.workspace-head }}
+          FLIGHT_RECORDER_ATTESTATION_BUNDLE: ${{ steps.evidence.outputs.attestation-bundle-path }}
+          FLIGHT_RECORDER_ATTESTATION_CAPSULE: ${{ steps.evidence.outputs.attestation-capsule-path }}
+          FLIGHT_RECORDER_ATTESTATION_PREDICATE: ${{ steps.evidence.outputs.attestation-predicate-path }}
+        run: node scripts/assert-action-outputs.js

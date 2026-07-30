@@ -18,7 +18,6 @@ import { spawnSync } from "node:child_process";
 
 const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cliPath = join(repositoryRoot, "bin", "fr-init.js");
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const temporaryDirectories = [];
 
 const makeWorkspace = async () => {
@@ -32,6 +31,19 @@ const run = (workspace, ...arguments_) =>
     cwd: workspace,
     encoding: "utf8",
   });
+
+const runPackageDryRun = () => {
+  const options = { cwd: repositoryRoot, encoding: "utf8" };
+  const arguments_ = ["pack", "--dry-run", "--json", "--ignore-scripts"];
+  if (process.platform !== "win32") {
+    return spawnSync("npm", arguments_, options);
+  }
+  return spawnSync(
+    process.env.ComSpec ?? "cmd.exe",
+    ["/d", "/s", "/c", `npm ${arguments_.join(" ")}`],
+    options,
+  );
+};
 
 afterEach(async () => {
   await Promise.all(
@@ -239,6 +251,20 @@ test("rejects a target outside the working directory before writing", async () =
   await assert.rejects(access(outside), { code: "ENOENT" });
 });
 
+test("rejects a recorder directory that cannot be represented portably", async () => {
+  const workspace = await makeWorkspace();
+  const result = run(
+    workspace,
+    "Portable recorder",
+    "--dir",
+    "ops/portable:alternate-stream",
+  );
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /\[E_DIR_PORTABLE\]/u);
+  assert.deepEqual(await readdir(workspace), []);
+});
+
 test("rejects a symlinked target ancestor before writing outside", async () => {
   const workspace = await makeWorkspace();
   const outside = await makeWorkspace();
@@ -251,19 +277,92 @@ test("rejects a symlinked target ancestor before writing outside", async () => {
   assert.deepEqual(await readdir(outside), []);
 });
 
-test("the package contains every advertised executable and template", () => {
-  const result = spawnSync(
-    npmCommand,
-    ["pack", "--dry-run", "--json", "--ignore-scripts"],
-    { cwd: repositoryRoot, encoding: "utf8" },
+test("the Claude Code adapter declares an explicit-only least-capability surface", async () => {
+  const manifest = JSON.parse(
+    await readFile(join(repositoryRoot, ".claude-plugin", "plugin.json"), "utf8"),
   );
+  const packageMetadata = JSON.parse(
+    await readFile(join(repositoryRoot, "package.json"), "utf8"),
+  );
+  const skill = await readFile(
+    join(repositoryRoot, "skills", "init", "SKILL.md"),
+    "utf8",
+  );
+
+  assert.equal(manifest.name, "flight-recorder");
+  assert.equal(manifest.version, packageMetadata.version);
+  assert.deepEqual(await readdir(join(repositoryRoot, "skills")), ["init"]);
+  [
+    "agents",
+    "dependencies",
+    "hooks",
+    "lspServers",
+    "mcpServers",
+    "monitors",
+    "settings",
+  ].forEach((field) => assert.equal(field in manifest, false, `unexpected ${field}`));
+  assert.match(skill, /^disable-model-invocation: true$/mu);
+  assert.match(skill, /^user-invocable: true$/mu);
+  assert.match(
+    skill,
+    /node "\$\{CLAUDE_PLUGIN_ROOT\}\/bin\/fr-init\.js".*`--`/u,
+  );
+  assert.doesNotMatch(skill, /^allowed-tools:/mu);
+  assert.doesNotMatch(skill, /!\s*`/u);
+});
+
+test("the plugin-root invocation initializes a shell-like task as literal data", async () => {
+  const workspace = await makeWorkspace();
+  const task = "Review --dir ../literal; $(not-run)";
+  const environment = {
+    ...process.env,
+    CLAUDE_PLUGIN_ROOT: repositoryRoot,
+    PATH: dirname(process.execPath),
+  };
+  const result = spawnSync(
+    "node",
+    [join(environment.CLAUDE_PLUGIN_ROOT, "bin", "fr-init.js"), "--", task],
+    {
+      cwd: workspace,
+      encoding: "utf8",
+      env: environment,
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Created flight recorder/u);
+  assert.match(
+    await readFile(
+      join(workspace, "ops", "review-dir-literal-not-run", "resume.md"),
+      "utf8",
+    ),
+    /## Current objective\nReview --dir \.\.\/literal; \$\(not-run\)\n/u,
+  );
+  assert.deepEqual(await readdir(workspace), ["ops"]);
+});
+
+test("the package contains every advertised executable and template", () => {
+  const result = runPackageDryRun();
 
   assert.equal(result.status, 0, result.stderr);
   const [{ files }] = JSON.parse(result.stdout);
   const paths = new Set(files.map(({ path }) => path));
 
   [
+    ".claude-plugin/plugin.json",
+    "action.yml",
+    "action/index.js",
+    "ADOPTION.md",
+    "bin/fr.js",
     "bin/fr-init.js",
+    "docs/CI_ATTESTATION_V1.md",
+    "docs/HANDOFF_V1.md",
+    "schema/ci-verification-v1.schema.json",
+    "schema/command-receipt-v1.schema.json",
+    "schema/handoff-v1.schema.json",
+    "scripts/verify-attestation-policy.js",
+    "skills/init/SKILL.md",
+    "src/ci-evidence.js",
     "templates/checks.md",
     "templates/decisions.log",
     "templates/resume.md",

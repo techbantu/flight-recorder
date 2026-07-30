@@ -1,7 +1,7 @@
 {
   "name": "@techbantu/flight-recorder",
   "version": "0.2.0",
-  "description": "Initialize evidence-backed, resumable task records for humans and coding agents.",
+  "description": "Create and verify local, Git-bound task handoffs for humans and coding agents.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -15,6 +15,7 @@
   "keywords": [
     "ai-agents",
     "developer-tools",
+    "handoff-integrity",
     "task-resumption",
     "verification"
   ],
@@ -22,9 +23,18 @@
     "node": ">=20"
   },
   "files": [
+    ".claude-plugin/",
+    "action.yml",
+    "action/",
+    "ADOPTION.md",
     "bin/",
     "src/",
+    "skills/",
     "templates/",
+    "schema/",
+    "scripts/verify-attestation-policy.js",
+    "docs/CI_ATTESTATION_V1.md",
+    "docs/HANDOFF_V1.md",
     "docs/RELEASING.md",
     "CHANGELOG.md",
     "CONTRIBUTING.md",
@@ -33,12 +43,14 @@
     "SECURITY.md"
   ],
   "bin": {
+    "fr": "./bin/fr.js",
     "fr-init": "./bin/fr-init.js"
   },
   "scripts": {
-    "lint": "node --check bin/fr-init.js && node --check src/recorder.js && node --check test/fr-init.test.js",
+    "lint": "node --check action/index.js && node --check bin/fr.js && node --check bin/fr-init.js && node --check scripts/assert-action-outputs.js && node --check scripts/verify-attestation-policy.js && node --check src/ci-evidence.js && node --check src/contracts.js && node --check src/handoff.js && node --check src/integrity.js && node --check src/recorder.js && node --check src/workspace.js && node --check test/fr-init.test.js && node --check test/github-action.test.js && node --check test/handoff.test.js",
     "test": "node --test",
     "check": "npm run lint && npm test",
+    "plugin:validate": "claude plugin validate --strict .",
     "prepack": "npm run check"
   },
   "publishConfig": {
