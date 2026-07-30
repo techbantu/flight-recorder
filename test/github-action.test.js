@@ -1022,10 +1022,23 @@ test("the emitted evidence restores and verifies in a clean clone of the exact H
     "clone",
     "--quiet",
     "--no-local",
+    "--no-checkout",
     context.workspace,
     clone,
   ]);
   assert.equal(cloneResult.status, 0, cloneResult.stderr);
+  const checkoutResult = run(clone, "git", [
+    "-c",
+    "core.autocrlf=false",
+    "-c",
+    "core.eol=lf",
+    "checkout",
+    "--quiet",
+    "--detach",
+    outputs["workspace-head"],
+    "--",
+  ]);
+  assert.equal(checkoutResult.status, 0, checkoutResult.stderr);
 
   const canonicalWorkspace = await realpath(context.workspace);
   const relativeRecorder = outputs["recorder-path"].slice(
