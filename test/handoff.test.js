@@ -736,12 +736,11 @@ test("fingerprinting fails closed while the workspace keeps mutating", async (t)
     [
       "-e",
       [
-        'const { writeFileSync } = require("node:fs");',
+        'const { writeFileSync, writeSync } = require("node:fs");',
         "const target = process.argv[1];",
-        'process.stdout.write("READY\\n");',
-        "const end = Date.now() + 3000;",
+        'writeSync(1, "READY\\n");',
         "let count = 0;",
-        'while (Date.now() < end) writeFileSync(target, `${count++}\\n`.padEnd(65536, "x"));',
+        'for (;;) writeFileSync(target, `${count++}\\n`.padEnd(65536, "x"));',
       ].join(""),
       join(context.workspace, "tracked.txt"),
     ],
@@ -752,12 +751,20 @@ test("fingerprinting fails closed while the workspace keeps mutating", async (t)
     mutator.stdout.once("data", resolveReady);
   });
 
-  const sealed = runCli(
-    context.workspace,
-    "seal",
-    context.recorderArgument,
-  );
-  mutator.kill("SIGKILL");
+  let sealed;
+  try {
+    sealed = runCli(
+      context.workspace,
+      "seal",
+      context.recorderArgument,
+    );
+  } finally {
+    const closed = new Promise((resolveClose) =>
+      mutator.once("close", resolveClose),
+    );
+    mutator.kill("SIGKILL");
+    await closed;
+  }
 
   assert.equal(sealed.status, 6, sealed.stderr);
   assert.match(sealed.stdout, /INVALID \[E_WORKSPACE_UNSTABLE\]/u);

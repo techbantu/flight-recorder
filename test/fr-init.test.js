@@ -18,7 +18,6 @@ import { spawnSync } from "node:child_process";
 
 const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cliPath = join(repositoryRoot, "bin", "fr-init.js");
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const temporaryDirectories = [];
 
 const makeWorkspace = async () => {
@@ -32,6 +31,19 @@ const run = (workspace, ...arguments_) =>
     cwd: workspace,
     encoding: "utf8",
   });
+
+const runPackageDryRun = () => {
+  const options = { cwd: repositoryRoot, encoding: "utf8" };
+  const arguments_ = ["pack", "--dry-run", "--json", "--ignore-scripts"];
+  if (process.platform !== "win32") {
+    return spawnSync("npm", arguments_, options);
+  }
+  return spawnSync(
+    process.env.ComSpec ?? "cmd.exe",
+    ["/d", "/s", "/c", `npm ${arguments_.join(" ")}`],
+    options,
+  );
+};
 
 afterEach(async () => {
   await Promise.all(
@@ -330,11 +342,7 @@ test("the plugin-root invocation initializes a shell-like task as literal data",
 });
 
 test("the package contains every advertised executable and template", () => {
-  const result = spawnSync(
-    npmCommand,
-    ["pack", "--dry-run", "--json", "--ignore-scripts"],
-    { cwd: repositoryRoot, encoding: "utf8" },
-  );
+  const result = runPackageDryRun();
 
   assert.equal(result.status, 0, result.stderr);
   const [{ files }] = JSON.parse(result.stdout);
