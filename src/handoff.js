@@ -98,6 +98,7 @@ export const runObservedCommand = async ({
   cwd,
   recorderArgument,
   argv,
+  childEnvironment = process.env,
 }) => {
   if (!Array.isArray(argv) || argv.length === 0 || !argv[0]) {
     throw new HandoffError("E_COMMAND_EMPTY", "Provide a command after --.", 2);
@@ -113,7 +114,7 @@ export const runObservedCommand = async ({
   const started = process.hrtime.bigint();
   const child = spawn(argv[0], argv.slice(1), {
     cwd: recorder.cwd,
-    env: process.env,
+    env: childEnvironment,
     shell: false,
     stdio: ["inherit", "pipe", "pipe"],
     windowsHide: true,
@@ -378,7 +379,7 @@ const validReceipt = (value) =>
   validWorkspace(value.workspaceBefore) &&
   validWorkspace(value.workspaceAfter);
 
-const validateCapsule = (capsule) => {
+export const validateCapsuleStructure = (capsule) => {
   if (
     !hasExactKeys(capsule, [
       "schemaVersion",
@@ -475,7 +476,7 @@ export const verifyCapsule = async ({ cwd, capsuleArgument }) => {
     );
   }
 
-  if (!validateCapsule(capsule)) {
+  if (!validateCapsuleStructure(capsule)) {
     return outcome("INVALID", "[E_CAPSULE_SCHEMA] Unsupported capsule schema.", 6);
   }
 

@@ -38,3 +38,50 @@ against its stored hash.
 Content hashes detect later changes and workspace drift. They do not prove
 authorship, trusted identity, test quality, or semantic correctness, and a local
 operator can construct a new internally consistent capsule.
+
+## GitHub Action boundary
+
+The Action executes the `argv` JSON array explicitly written into the adopting
+repository's workflow. It uses spawn `shell: false`, but a maintainer can still
+explicitly choose `bash`, `sh`, `cmd.exe`, PowerShell, or another interpreter
+as the executable. Never construct `argv` from a pull-request title, body,
+branch name, issue text, model output, or another untrusted expression.
+
+Use ordinary read-only `pull_request` workflows without secrets. Never combine
+untrusted checkout or command execution with `pull_request_target`,
+`workflow_run`, repository write permission, production credentials, or
+deployment secrets.
+
+The Action applies a clean-workspace preflight, requires the complete
+non-ignored snapshots before and after execution to match, and verifies the
+capsule again in a fresh clone of the recorded commit. Snapshot equality does
+not prove continuous immutability: a command can mutate a file and restore its
+exact bytes and mode before exit. Git-ignored files remain outside the v1
+fingerprint and preflight. Failure evidence remains on the runner but is not
+reported as `VALID`.
+
+As defense in depth, the child process does not directly inherit GitHub
+file-command paths, `GITHUB_TOKEN`, Actions runtime tokens, or OIDC request
+credentials from the Action process. This is not a same-user sandbox: hostile
+code can inspect its runner, leave descendants, or tamper with its own job.
+Other environment variables configured by the workflow are still inherited.
+Command stdout and stderr are streamed to the ordinary GitHub Actions log,
+where GitHub's visibility and retention rules apply.
+
+Git metadata subprocesses receive a smaller allowlisted environment with no
+arbitrary workflow variables. The Action rejects executable Git content
+filters and initialized submodules before status runs; this also means hydrated
+LFS and initialized-submodule worktrees are unsupported in v1. These checks
+reduce accidental helper execution but cannot lock repository configuration
+against a racing same-user process.
+
+Optional GitHub artifact signing is a separate adopter-controlled step
+requiring `id-token: write` and `attestations: write`. Put it in a separate job
+that downloads the exact evidence artifact and does not check out or execute
+project code. A valid signature proves the signing workflow identity and
+subject digest, not the semantic quality of the command or tests. Review the
+complete recorder before sharing it: task text, exact command arguments, and
+user-authored artifacts can contain private data. Upload only the exact
+`attestation-capsule-path` and `attestation-predicate-path` outputs, never a
+directory recursively. The staged capsule still retains the task label,
+recorder path, workspace fingerprint, and file summaries.

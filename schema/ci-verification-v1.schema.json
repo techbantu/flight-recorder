@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/techbantu/flight-recorder/attestation/ci-verification/v1",
+  "title": "Flight Recorder CI Verification Predicate v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "outcome",
+    "tool",
+    "capsuleContentDigest",
+    "capsuleFileDigest",
+    "workspaceHead",
+    "workspaceFingerprintDigest",
+    "commandArgvDigest",
+    "receiptFileDigest",
+    "policy"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "dev.flight-recorder.ci-verification"
+    },
+    "outcome": {
+      "const": "VALID"
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "const": "@techbantu/flight-recorder"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
+        }
+      }
+    },
+    "capsuleContentDigest": {
+      "$ref": "#/$defs/sha256Digest"
+    },
+    "capsuleFileDigest": {
+      "$ref": "#/$defs/sha256Digest"
+    },
+    "workspaceHead": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40,64}$"
+    },
+    "workspaceFingerprintDigest": {
+      "$ref": "#/$defs/sha256Digest"
+    },
+    "commandArgvDigest": {
+      "$ref": "#/$defs/sha256Digest"
+    },
+    "receiptFileDigest": {
+      "$ref": "#/$defs/sha256Digest"
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cleanCloneVerified",
+        "spawnShell",
+        "workspaceSnapshotsMatched"
+      ],
+      "properties": {
+        "cleanCloneVerified": {
+          "const": true
+        },
+        "spawnShell": {
+          "const": false
+        },
+        "workspaceSnapshotsMatched": {
+          "const": true
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256Digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  }
+}

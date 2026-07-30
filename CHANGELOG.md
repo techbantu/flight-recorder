@@ -21,6 +21,14 @@ All notable changes will be documented here.
 - Versioned recorder identity with task-mismatch and malformed-state rejection.
 - Stable input, target-conflict, and path-boundary errors.
 - A Node test suite, package-content regression check, and CI matrix.
+- A dependency-free GitHub Action that runs a bounded JSON argument array,
+  requires commit-reconstructible endpoint snapshots, rejects non-ignored
+  endpoint drift, rejects executable Git filters and initialized submodules,
+  strips sensitive GitHub controls from child and metadata subprocesses, emits
+  a verified capsule, and prepares two exact privacy-reduced files plus a
+  limited-field custom predicate for optional GitHub attestation.
+- A public CI-verification predicate schema, signed-evidence workflow guidance,
+  clean-clone restoration proof, and explicit external-adoption ledger.
 - Contributor, security, privacy, and troubleshooting guidance.
 
 ### Fixed
@@ -31,3 +39,5 @@ All notable changes will be documented here.
   `resume.md`.
 - Verification fails closed for malformed receipts, task-mismatched evidence,
   changing workspaces, unsafe immutable targets, and non-portable paths.
+- The Action attestation policy binds exactly one receipt summary and rejects
+  non-string digest fields, extra receipt summaries, or digest drift.

@@ -14,6 +14,45 @@ upload files, or decide that a successful command proves semantic correctness.
 > **Release status:** the source is a tested release candidate. The
 > `@techbantu/flight-recorder` package is not currently published on npm.
 
+## Proof-carrying CI checks
+
+The repository also contains a dependency-free GitHub Action for turning one
+existing verification command into a Git-bound evidence bundle:
+
+```yaml
+- name: Test with Flight Recorder evidence
+  id: evidence
+  uses: techbantu/flight-recorder@<FULL_RELEASE_COMMIT_SHA>
+  with:
+    task: Verify the reviewed checkout
+    argv: '["npm","test"]'
+```
+
+The Action runs the exact JSON argument array with spawn `shell: false`,
+applies a clean-workspace preflight, requires the complete non-ignored
+workspace snapshots before and after execution to match, seals the result, and
+reports success only when exact `fr verify` returns `VALID` locally and in a
+fresh clone of the recorded commit. This proves endpoint equality and
+reconstructibility, not continuous immutability while the command runs. Its
+evidence logic makes no network request and needs no GitHub token or write
+permission; the chosen verification command can still use the runner's network
+and filesystem. The v1 Action fails closed for executable Git content filters,
+hydrated LFS, sparse checkouts, and initialized submodules.
+
+On a trusted default-branch workflow, the adopting repository can sign the
+capsule as the attestation subject and embed the limited-field predicate with
+GitHub's official artifact attestation service in a separate signing job. The
+example first validates the raw digests of both downloaded input files. The
+signature establishes which repository and workflow signed the capsule; it
+does not prove the test was well-designed, the producer process was
+trustworthy, or the code is correct. The capsule retains the task label.
+
+Use a full reviewed commit SHA, never the placeholder, a branch name, or a
+movable tag. See [CI verification and attestation v1](docs/CI_ATTESTATION_V1.md)
+for read-only PR and signed default-branch examples, security boundaries,
+verification, and removal. Public external use is recorded under the strict,
+non-telemetric rules in [Public adoption evidence](ADOPTION.md).
+
 ## Why use it?
 
 Long-running work often survives in chat history or memory alone. When that

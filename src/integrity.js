@@ -56,6 +56,23 @@ export const canonicalJson = (value) => serializeCanonical(value);
 export const sha256 = (value) =>
   createHash("sha256").update(value).digest("hex");
 
+export const readRegularFile = async (path) => {
+  const flags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0);
+  const handle = await open(path, flags);
+
+  try {
+    const status = await handle.stat();
+    if (!status.isFile()) {
+      const error = new Error(`Expected a regular file: ${path}`);
+      error.code = "E_PATH_TYPE";
+      throw error;
+    }
+    return await handle.readFile();
+  } finally {
+    await handle.close();
+  }
+};
+
 export const summarizeFile = async (path, displayPath) => {
   const digest = createHash("sha256");
   let bytes = 0;

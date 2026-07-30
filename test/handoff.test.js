@@ -32,6 +32,8 @@ const temporaryDirectories = [];
 const sha256 = (value) =>
   createHash("sha256").update(value).digest("hex");
 
+const shellQuote = (value) => `'${value.replaceAll("'", "'\"'\"'")}'`;
+
 const normalized = (value) => {
   if (Array.isArray(value)) return value.map(normalized);
   if (value === null || typeof value !== "object") return value;
@@ -734,15 +736,40 @@ test("fingerprinting fails closed when the workspace changes between captures", 
   const shimDirectory = join(context.recorder, "test-bin");
   const shimPath = join(shimDirectory, "git");
   const counterPath = join(context.recorder, "git-shim-count");
+  const targetPath = join(context.workspace, "tracked.txt");
+  let gitExecutable;
+  for (const directory of (process.env.PATH ?? "").split(delimiter)) {
+    if (!directory) continue;
+    const candidate = join(directory, "git");
+    if (
+      await access(candidate).then(
+        () => true,
+        () => false,
+      )
+    ) {
+      gitExecutable = candidate;
+      break;
+    }
+  }
+  assert.ok(gitExecutable, "Git executable must be discoverable on PATH");
+  const mutateWorkspace = [
+    'const { readFileSync, writeFileSync } = require("node:fs");',
+    "const [target, counter] = process.argv.slice(1);",
+    'const count = Number(readFileSync(counter, "utf8"));',
+    "writeFileSync(counter, String(count + 1));",
+    'writeFileSync(target, `${count}\\n`.padEnd(65536, "x"));',
+  ].join("");
   await mkdir(shimDirectory);
   await writeFile(counterPath, "0", "utf8");
   await writeFile(
     shimPath,
     [
       "#!/bin/sh",
-      'PATH="$FLIGHT_RECORDER_REAL_PATH" git "$@"',
+      `${shellQuote(gitExecutable)} "$@"`,
       "git_status=$?",
-      'PATH="$FLIGHT_RECORDER_REAL_PATH" node -e \'const { readFileSync, writeFileSync } = require("node:fs"); const [target, counter] = process.argv.slice(1); const count = Number(readFileSync(counter, "utf8")); writeFileSync(counter, String(count + 1)); writeFileSync(target, `${count}\\n`.padEnd(65536, "x"));\' "$FLIGHT_RECORDER_MUTATION_TARGET" "$FLIGHT_RECORDER_MUTATION_COUNTER"',
+      `${shellQuote(process.execPath)} -e ${shellQuote(
+        mutateWorkspace,
+      )} ${shellQuote(targetPath)} ${shellQuote(counterPath)}`,
       'exit "$git_status"',
       "",
     ].join("\n"),
@@ -758,9 +785,6 @@ test("fingerprinting fails closed when the workspace changes between captures", 
       env: {
         ...process.env,
         PATH: `${shimDirectory}${delimiter}${process.env.PATH}`,
-        FLIGHT_RECORDER_REAL_PATH: process.env.PATH,
-        FLIGHT_RECORDER_MUTATION_COUNTER: counterPath,
-        FLIGHT_RECORDER_MUTATION_TARGET: join(context.workspace, "tracked.txt"),
       },
     },
   );

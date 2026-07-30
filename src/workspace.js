@@ -96,10 +96,22 @@ const assertExistingPath = async (root, target, expectedKind) => {
   }
 };
 
+const gitEnvironmentKeys = new Set([
+  "COMSPEC",
+  "PATH",
+  "PATHEXT",
+  "SYSTEMROOT",
+  "TEMP",
+  "TMP",
+  "TMPDIR",
+  "WINDIR",
+]);
+
 const cleanGitEnvironment = () => {
   const environment = Object.fromEntries(
     Object.entries(process.env).filter(
-      ([key]) => !key.toUpperCase().startsWith("GIT_"),
+      ([key, value]) =>
+        value !== undefined && gitEnvironmentKeys.has(key.toUpperCase()),
     ),
   );
   return {
@@ -111,6 +123,78 @@ const cleanGitEnvironment = () => {
     LANG: "C",
     LC_ALL: "C",
   };
+};
+
+const executableFilterKey =
+  /^filter\..+\.(?:clean|smudge|process)$/iu;
+
+const gitlinkPaths = (buffer, context) => {
+  const paths = [];
+  for (const entry of decodeGit(buffer, context).split("\0").filter(Boolean)) {
+    const match = entry.match(
+      /^([0-7]{6}) [a-f0-9]{40,64} [0-3]\t([\s\S]+)$/u,
+    );
+    if (!match || !isPortableRelativePath(match[2])) {
+      throw new WorkspaceError(
+        "E_WORKSPACE_INDEX",
+        "Git index contains an unsupported or non-portable entry.",
+      );
+    }
+    if (match[1] === "160000") paths.push(match[2]);
+  }
+  return [...new Set(paths)].sort(compareCodeUnits);
+};
+
+const assertSafeGitStatusConfiguration = async (repoRoot) => {
+  const canonicalRoot = await realpath(repoRoot);
+
+  const configuredKeys = decodeGit(
+    await runGit(canonicalRoot, [
+      "config",
+      "--null",
+      "--name-only",
+      "--list",
+    ]),
+    "Git configuration",
+  )
+    .split("\0")
+    .filter(Boolean);
+  if (configuredKeys.some((key) => executableFilterKey.test(key))) {
+    throw new WorkspaceError(
+      "E_GIT_FILTER",
+      "Executable Git content filters are unsupported; the observed command was not executed.",
+    );
+  }
+
+  const index = await runGit(canonicalRoot, [
+    "ls-files",
+    "--stage",
+    "-z",
+    "--",
+  ]);
+  for (const path of gitlinkPaths(index, "Git submodule index")) {
+    const absolute = await safeWorkspaceTarget(canonicalRoot, path);
+    const status = await inspect(absolute);
+    if (!status) continue;
+    if (status.isSymbolicLink() || !status.isDirectory()) {
+      throw new WorkspaceError(
+        "E_SUBMODULE_TYPE",
+        `Submodule checkout must be a real directory: ${path}`,
+      );
+    }
+    const dotGit = await inspect(resolve(absolute, ".git"));
+    if (!dotGit) continue;
+    if (dotGit.isSymbolicLink() || (!dotGit.isFile() && !dotGit.isDirectory())) {
+      throw new WorkspaceError(
+        "E_SUBMODULE_GITDIR",
+        `Submodule metadata path is unsafe: ${path}`,
+      );
+    }
+    throw new WorkspaceError(
+      "E_SUBMODULE_INITIALIZED",
+      "Initialized submodules are unsupported by the Action clean-clone policy; the observed command was not executed.",
+    );
+  }
 };
 
 const runGit = async (cwd, arguments_) => {
@@ -155,6 +239,105 @@ export const repositoryRoot = async (cwd) => {
     throw new WorkspaceError("E_GIT_ROOT", "A Git working tree is required.");
   }
   return realpath(root);
+};
+
+export const repositoryHead = async (cwd) => {
+  const head = decodeGit(
+    await runGit(cwd, ["rev-parse", "--verify", "HEAD"]),
+    "Git HEAD",
+  ).trim();
+  if (!/^[a-f0-9]{40,64}$/u.test(head)) {
+    throw new WorkspaceError("E_GIT_HEAD", "Git HEAD is not a supported object ID.");
+  }
+  return head;
+};
+
+export const cloneRepositoryCommit = async ({
+  source,
+  target,
+  head,
+}) => {
+  await runGit(source, [
+    "clone",
+    "--quiet",
+    "--no-local",
+    "--no-checkout",
+    "--",
+    source,
+    target,
+  ]);
+  await runGit(target, [
+    "checkout",
+    "--quiet",
+    "--detach",
+    head,
+    "--",
+  ]);
+  if ((await repositoryHead(target)) !== head) {
+    throw new WorkspaceError(
+      "E_GIT_HEAD",
+      "The clean clone did not check out the expected Git HEAD.",
+    );
+  }
+};
+
+export const workspaceIsClean = async ({
+  repoRoot,
+  excludedRecorderPath = null,
+}) => {
+  if (
+    excludedRecorderPath !== null &&
+    !isPortableRelativePath(excludedRecorderPath)
+  ) {
+    throw new WorkspaceError(
+      "E_RECORDER_PATH_PORTABLE",
+      "Recorder path must use the portable path contract.",
+    );
+  }
+  await assertSafeGitStatusConfiguration(repoRoot);
+  const platformTracksModesAndSymlinks = process.platform !== "win32";
+  const [statusRaw, indexFlagsRaw] = await Promise.all([
+    runGit(repoRoot, [
+      "-c",
+      "core.excludesFile=",
+      "-c",
+      `core.fileMode=${platformTracksModesAndSymlinks}`,
+      "-c",
+      `core.symlinks=${platformTracksModesAndSymlinks}`,
+      "-c",
+      "core.ignoreCase=false",
+      "status",
+      "--porcelain=v1",
+      "--untracked-files=all",
+      "--ignore-submodules=none",
+      "--no-renames",
+      "-z",
+      "--",
+    ]),
+    runGit(repoRoot, ["ls-files", "-v", "-z", "--"]),
+  ]);
+  const concealedIndexEntry = decodeGit(
+    indexFlagsRaw,
+    "Git index flags",
+  )
+    .split("\0")
+    .filter(Boolean)
+    .some((entry) => {
+      const tag = entry[0];
+      return tag === "S" || tag !== tag.toUpperCase();
+    });
+  if (concealedIndexEntry) return false;
+  const status = decodeGit(statusRaw, "Git status");
+  const entries = status.split("\0").filter(Boolean);
+  return entries.every((entry) => {
+    if (entry.length < 4 || entry[2] !== " ") return false;
+    const path = entry.slice(3);
+    return (
+      excludedRecorderPath !== null &&
+      (path === excludedRecorderPath ||
+        path.startsWith(`${excludedRecorderPath}/`))
+    );
+  });
 };
 
 const validateState = (value) => {

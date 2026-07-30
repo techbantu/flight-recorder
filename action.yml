@@ -1,0 +1,41 @@
+name: Flight Recorder Evidence
+description: Run one exact argument array in a clean Git checkout and emit a verified, commit-bound evidence capsule.
+author: TechBantu
+
+inputs:
+  task:
+    description: Short task label stored inside the local evidence bundle.
+    required: true
+  argv:
+    description: JSON array containing the executable and each argument as a separate string.
+    required: true
+
+outputs:
+  outcome:
+    description: Exact verification outcome. Successful runs emit VALID.
+  recorder-path:
+    description: Absolute path to the complete local recorder; review it and do not recursively upload it after untrusted commands.
+  receipt-path:
+    description: Absolute path to the observed command receipt.
+  capsule-path:
+    description: Absolute path to the verified handoff capsule.
+  predicate-path:
+    description: Absolute path to the limited-field custom attestation predicate.
+  attestation-bundle-path:
+    description: Absolute path to the staging directory; upload the two exact file outputs instead of this directory.
+  attestation-capsule-path:
+    description: Absolute path to capsule.json inside the two-file staging directory.
+  attestation-predicate-path:
+    description: Absolute path to predicate.json inside the two-file staging directory.
+  capsule-content-digest:
+    description: Canonical digest recorded inside the handoff capsule.
+  capsule-file-digest:
+    description: SHA-256 digest of the raw capsule file used as the attestation subject.
+  predicate-file-digest:
+    description: SHA-256 digest of the raw predicate file staged for attestation.
+  workspace-head:
+    description: Git HEAD bound into the verified evidence.
+
+runs:
+  using: node24
+  main: action/index.js
