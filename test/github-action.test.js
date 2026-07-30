@@ -1064,21 +1064,23 @@ test("the emitted evidence restores and verifies in a clean clone of the exact H
 test("the Action rejects a missing GitHub workspace before spawning", async () => {
   const context = await makeWorkspace();
   const sentinel = join(context.workspace, "must-not-run");
+  const environment = {
+    ...process.env,
+    GITHUB_OUTPUT: context.output,
+    GITHUB_STEP_SUMMARY: context.summary,
+    INPUT_ARGV: JSON.stringify([
+      process.execPath,
+      "-e",
+      `require("node:fs").writeFileSync(${JSON.stringify(sentinel)}, "ran")`,
+    ]),
+    INPUT_TASK: "Must not run",
+  };
+  delete environment.GITHUB_WORKSPACE;
   const result = run(
     context.workspace,
     process.execPath,
     [actionPath],
-    {
-      ...process.env,
-      GITHUB_OUTPUT: context.output,
-      GITHUB_STEP_SUMMARY: context.summary,
-      INPUT_ARGV: JSON.stringify([
-        process.execPath,
-        "-e",
-        `require("node:fs").writeFileSync(${JSON.stringify(sentinel)}, "ran")`,
-      ]),
-      INPUT_TASK: "Must not run",
-    },
+    environment,
   );
 
   assert.equal(result.status, 2, result.stderr);
