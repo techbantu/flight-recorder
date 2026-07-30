@@ -66,15 +66,20 @@ const makeWorkspace = async () => {
   };
 };
 
-const actionEnvironment = (context, argv) => ({
-  ...process.env,
-  GITHUB_OUTPUT: context.output,
-  GITHUB_STEP_SUMMARY: context.summary,
-  GITHUB_WORKSPACE: context.workspace,
-  RUNNER_TEMP: context.runner,
-  INPUT_ARGV: argv,
-  INPUT_TASK: "Verify the reviewed checkout",
-});
+const actionEnvironment = (context, argv, hostEnvironment = process.env) => {
+  const environment = { ...hostEnvironment };
+  delete environment.GITHUB_EVENT_NAME;
+  delete environment.GITHUB_SHA;
+  return {
+    ...environment,
+    GITHUB_OUTPUT: context.output,
+    GITHUB_STEP_SUMMARY: context.summary,
+    GITHUB_WORKSPACE: context.workspace,
+    RUNNER_TEMP: context.runner,
+    INPUT_ARGV: argv,
+    INPUT_TASK: "Verify the reviewed checkout",
+  };
+};
 
 const runAction = (context, argv) =>
   run(
@@ -110,6 +115,23 @@ test("the Action metadata uses the current Node runtime without lifecycle hooks"
 
   assert.match(metadata, /^runs:\n  using: node24\n  main: action\/index\.js$/mu);
   assert.doesNotMatch(metadata, /^\s+(pre|post):/mu);
+});
+
+test("Action fixtures do not inherit a host checkout identity", async () => {
+  const context = await makeWorkspace();
+  const environment = actionEnvironment(
+    context,
+    JSON.stringify([process.execPath, "-e", "process.exit(0)"]),
+    {
+      GITHUB_EVENT_NAME: "push",
+      GITHUB_SHA: "0".repeat(40),
+      PRESERVED_FIXTURE_VALUE: "present",
+    },
+  );
+
+  assert.equal(environment.GITHUB_EVENT_NAME, undefined);
+  assert.equal(environment.GITHUB_SHA, undefined);
+  assert.equal(environment.PRESERVED_FIXTURE_VALUE, "present");
 });
 
 test("the Action records exact inert argv and emits a locally valid capsule", async () => {
@@ -1007,6 +1029,29 @@ test("trusted default-branch evidence rejects a mismatched GitHub SHA", async ()
   await assert.rejects(access(context.summary), { code: "ENOENT" });
 });
 
+test("trusted default-branch evidence accepts a matching GitHub SHA", async () => {
+  const context = await makeWorkspace();
+  const expectedHead = git(context.workspace, "rev-parse", "HEAD");
+  const result = run(
+    context.workspace,
+    process.execPath,
+    [actionPath],
+    {
+      ...actionEnvironment(
+        context,
+        JSON.stringify([process.execPath, "-e", "process.exit(0)"]),
+      ),
+      GITHUB_EVENT_NAME: "push",
+      GITHUB_SHA: expectedHead,
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  const outputs = await parseOutputs(context.output);
+  assert.equal(outputs["workspace-head"], expectedHead);
+  assert.equal(outputs.outcome, "VALID");
+});
+
 test("the emitted evidence restores and verifies in a clean clone of the exact HEAD", async () => {
   const context = await makeWorkspace();
   const result = runAction(
@@ -1077,17 +1122,14 @@ test("the emitted evidence restores and verifies in a clean clone of the exact H
 test("the Action rejects a missing GitHub workspace before spawning", async () => {
   const context = await makeWorkspace();
   const sentinel = join(context.workspace, "must-not-run");
-  const environment = {
-    ...process.env,
-    GITHUB_OUTPUT: context.output,
-    GITHUB_STEP_SUMMARY: context.summary,
-    INPUT_ARGV: JSON.stringify([
+  const environment = actionEnvironment(
+    context,
+    JSON.stringify([
       process.execPath,
       "-e",
       `require("node:fs").writeFileSync(${JSON.stringify(sentinel)}, "ran")`,
     ]),
-    INPUT_TASK: "Must not run",
-  };
+  );
   delete environment.GITHUB_WORKSPACE;
   const result = run(
     context.workspace,
